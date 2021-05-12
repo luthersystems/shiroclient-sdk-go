@@ -13,12 +13,14 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
+	"github.com/luthersystems/substratecommon"
 	"github.com/sirupsen/logrus"
 )
 
@@ -42,6 +44,8 @@ type requestOptions struct {
 	ctx                 context.Context
 	dependentTxID       string
 	disableWritePolling bool
+	ccFetchURLDowngrade bool
+	ccFetchURLProxy     *url.URL
 }
 
 // Config is a type for a function that can mutate a requestOptions
@@ -143,9 +147,9 @@ func WithAuthToken(token string) Config {
 }
 
 // WithTimestampGenerator allows specifying a function that will be
-// invoked at every Upgrade, Init, and Call whose output is used to
-// set the substrate "now" timestamp in mock mode. Has no effect
-// outside of mock mode.
+// invoked at every Init or Call whose output is used to set the
+// substrate "now" timestamp in mock mode. Has no effect outside of
+// mock mode.
 func WithTimestampGenerator(timestampGenerator func(context.Context) string) Config {
 	return func(r *requestOptions) {
 		r.timestampGenerator = timestampGenerator
@@ -194,6 +198,54 @@ func WithDisableWritePolling(disable bool) Config {
 	})
 }
 
+// WithCCFetchURLDowngrade allows controlling https -> http downgrade,
+// typically useful before proxying for ccfetchurl library.
+func WithCCFetchURLDowngrade(downgrade bool) Config {
+	return (func(r *requestOptions) {
+		r.ccFetchURLDowngrade = downgrade
+	})
+}
+
+// WithCCFetchURLProxy sets the proxy for ccfetchurl library.
+func WithCCFetchURLProxy(proxy *url.URL) Config {
+	return (func(r *requestOptions) {
+		r.ccFetchURLProxy = proxy
+	})
+}
+
+// ProbeTimestampGenerator returns the timestamp generator implied by
+// an array of options.
+func ProbeTimestampGenerator(configs []Config) (func(context.Context) string, error) {
+	rpc := &rpcShiroClient{baseConfig: nil, defaultLog: nil, httpClient: http.Client{}}
+	ro, err := rpc.applyConfigs(configs...)
+	if err != nil {
+		return nil, err
+	}
+	return ro.timestampGenerator, nil
+}
+
+// ProbeForCall returns the option values required for a call implied
+// by an array of options.
+func ProbeForCall(configs []Config) (context.Context, string, func(context.Context) string, logrus.Fields, string, string, interface{}, map[string][]byte, error) {
+	rpc := &rpcShiroClient{baseConfig: nil, defaultLog: nil, httpClient: http.Client{}}
+	ro, err := rpc.applyConfigs(configs...)
+	if err != nil {
+		return nil, "", nil, nil, "", "", nil, nil, err
+	}
+	return ro.ctx, ro.id, ro.timestampGenerator, ro.logFields, ro.authToken, ro.creator, ro.params, ro.transient, nil
+}
+
+// ProbeForNew returns the option values required for creating a new
+// mock implied by an array of options.
+func ProbeForNew(configs []Config) (bool, *url.URL, error) {
+	rpc := &rpcShiroClient{baseConfig: nil, defaultLog: nil, httpClient: http.Client{}}
+	ro, err := rpc.applyConfigs(configs...)
+	if err != nil {
+		return false, nil, err
+	}
+	return ro.ccFetchURLDowngrade, ro.ccFetchURLProxy, nil
+}
+
 // ShiroClient is an abstraction for a connection to a
 // blockchain-based smart contract execution engine. Currently, the
 // "phylum" code must be written in a LISP dialect known as Elps.
@@ -206,11 +258,6 @@ type ShiroClient interface {
 	// indentifier indicating the deployed phylum code being executed by
 	// the shiro server.
 	ShiroPhylum(config ...Config) (string, error)
-
-	// Upgrade upgrades the substrate a shiro phylum is deployed on.
-	// The new version of substrate must already be installed on
-	// endorsing peers.
-	Upgrade(config ...Config) error
 
 	// Init initializes the chaincode given a string containing
 	// base64-encoded phylum code.  The phylum code should be deployed
@@ -231,6 +278,24 @@ type ShiroClient interface {
 	// QueryBlock returns summary information about the block given by
 	// blockNumber.
 	QueryBlock(blockNumber uint64, config ...Config) (Block, error)
+}
+
+// MockShiroClient is an abstraction for a ShiroClient that is backed
+// by an in-process lightweight ledger.
+type MockShiroClient interface {
+	ShiroClient
+
+	// Close shuts down the mock backing database.
+	Close() error
+
+	// Snapshot copies the current state of the mock backend out
+	// to the supplied io.Writer.
+	Snapshot(w io.Writer) error
+
+	// SetCreatorWithAttributes sets the transaction creator and
+	// their attributes.  Any previously set creator attributes
+	// are discarded.
+	SetCreatorWithAttributes(creator string, attrs map[string]string)
 }
 
 // ShiroResponse is a wrapper for a response from a shiro
@@ -268,6 +333,8 @@ type Block interface {
 type Transaction interface {
 	ID() string
 	Reason() string
+	Event() []byte
+	ChaincodeID() string
 }
 
 // RESPONSE IMPLEMENTATIONS
@@ -359,6 +426,8 @@ func (b *block) Transactions() []Transaction {
 type transaction struct {
 	id     string
 	reason string
+	event  []byte
+	ccID   string
 }
 
 var _ Transaction = &transaction{}
@@ -373,6 +442,16 @@ func (t *transaction) Reason() string {
 	return t.reason
 }
 
+// Event implements Transaction
+func (t *transaction) Event() []byte {
+	return t.event
+}
+
+// ChaincodeID implements Transaction
+func (t *transaction) ChaincodeID() string {
+	return t.ccID
+}
+
 // RPC IMPLEMENTATION - forwards to a JSON-RPC shiro gateway server
 
 const (
@@ -381,9 +460,6 @@ const (
 	// MethodShiroPhylum is used to call the ShiroPhylum method which returns
 	// an identifier for the current deployed phylum.
 	MethodShiroPhylum = "ShiroPhylum"
-	// MethodUpgrade is used to call the Upgrade method which upgrades the
-	// substrate .
-	MethodUpgrade = "Upgrade"
 	// MethodInit is used to call the Init method which initializes substrate.
 	MethodInit = "Init"
 	// MethodCall is used to call the Call method which executes a method on
@@ -719,37 +795,6 @@ func (c *rpcShiroClient) ShiroPhylum(configs ...Config) (string, error) {
 	}
 }
 
-// Upgrade implements the ShiroClient interface.
-func (c *rpcShiroClient) Upgrade(configs ...Config) error {
-	opt, err := c.applyConfigs(configs...)
-	if err != nil {
-		return err
-	}
-
-	req := map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      opt.id,
-		"method":  MethodUpgrade,
-		"params":  map[string]interface{}{},
-	}
-
-	res, err := c.reqres(req, opt)
-	if err != nil {
-		return err
-	}
-
-	switch res.errorLevel {
-	case ErrorLevelNoError:
-		return nil
-
-	case ErrorLevelShiroClient:
-		return res.getShiroClientError()
-
-	default:
-		return fmt.Errorf("ShiroClient.Upgrade unexpected error level %d", res.errorLevel)
-	}
-}
-
 // Init implements the ShiroClient interface.
 func (c *rpcShiroClient) Init(phylum string, configs ...Config) error {
 	opt, err := c.applyConfigs(configs...)
@@ -810,6 +855,12 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Con
 	}
 	if opt.disableWritePolling {
 		params["disable_write_polling"] = opt.disableWritePolling
+	}
+	params["cc_fetchurl_downgrade"] = opt.ccFetchURLDowngrade
+	if opt.ccFetchURLProxy != nil {
+		params["cc_fetchurl_proxy"] = opt.ccFetchURLProxy.String()
+	} else {
+		params["cc_fetchurl_proxy"] = ""
 	}
 
 	req := map[string]interface{}{
@@ -946,6 +997,8 @@ func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Bloc
 			return nil, errors.New("ShiroClient.QueryBlock expected a string block_hash field")
 		}
 
+		// transaction IDs
+
 		txidsArb, ok := res["transaction_ids"]
 		if !ok {
 			return nil, errors.New("ShiroClient.QueryBlock expected a transaction_ids field")
@@ -966,6 +1019,8 @@ func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Bloc
 
 			txidsOut[idx] = txid
 		}
+
+		// reasons
 
 		reasonsArb, ok := res["transaction_reasons"]
 		if !ok {
@@ -988,6 +1043,58 @@ func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Bloc
 			reasonsOut[idx] = reason
 		}
 
+		// events
+
+		eventsArb, ok := res["transaction_events"]
+		if !ok {
+			return nil, errors.New("ShiroClient.QueryBlock expected a transaction_events field")
+		}
+
+		events, ok := eventsArb.([]interface{})
+		if !ok {
+			return nil, errors.New("ShiroClient.QueryBlock expected an array transaction_events field")
+		}
+
+		eventsOut := make([][]byte, len(events))
+
+		for idx, eventArb := range events {
+			event, ok := eventArb.(string)
+			if !ok {
+				return nil, errors.New("ShiroClient.QueryBlock expected a string transaction_event member")
+			}
+
+			eventBytes, err := base64.StdEncoding.DecodeString(event)
+			if err != nil {
+				return nil, errors.New("ShiroClient.QueryBlock expected a base64 string transaction_event member")
+			}
+			eventsOut[idx] = eventBytes
+		}
+
+		// chaincode IDs
+
+		ccidsArb, ok := res["chaincode_ids"]
+		if !ok {
+			return nil, errors.New("ShiroClient.QueryBlock expected a chaincode_ids field")
+		}
+
+		ccids, ok := ccidsArb.([]interface{})
+		if !ok {
+			return nil, errors.New("ShiroClient.QueryBlock expected an array chaincode_ids field")
+		}
+
+		ccidsOut := make([]string, len(ccids))
+
+		for idx, ccidsArb := range ccids {
+			ccid, ok := ccidsArb.(string)
+			if !ok {
+				return nil, errors.New("ShiroClient.QueryBlock expected a string chaincode_id member")
+			}
+
+			ccidsOut[idx] = ccid
+		}
+
+		// build transactions
+
 		transactions := make([]Transaction, len(txidsOut))
 
 		if len(txidsOut) != len(reasonsOut) {
@@ -995,7 +1102,7 @@ func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Bloc
 		}
 
 		for i, txid := range txidsOut {
-			transactions[i] = &transaction{id: txid, reason: reasonsOut[i]}
+			transactions[i] = &transaction{id: txid, reason: reasonsOut[i], event: eventsOut[i], ccID: ccidsOut[i]}
 		}
 
 		return &block{hash: blockHash, transactions: transactions}, nil
@@ -1014,12 +1121,208 @@ func NewRPC(configs ...Config) ShiroClient {
 	return &rpcShiroClient{baseConfig: configs, defaultLog: logrus.New(), httpClient: http.Client{}}
 }
 
-type syncClient struct {
-	mutex      *sync.Mutex
-	underlying ShiroClient
+// MOCK IMPLEMENTATION - forwards to Plugin
+
+type mockShiroClient struct {
+	baseConfig  []Config
+	defaultLog  *logrus.Logger
+	conn        substratecommon.Substrate
+	tag         string
+	shiroPhylum string
 }
 
-var _ ShiroClient = (*syncClient)(nil)
+var _ MockShiroClient = (*mockShiroClient)(nil)
+
+// applyConfigs applies configs -- baseConfigs supplied in the
+// constructor first, followed by configs arguments.
+func (c *mockShiroClient) flatten(configs ...Config) (*substratecommon.ConcreteRequestOptions, error) {
+	opt := &requestOptions{
+		logFields: make(logrus.Fields),
+		id:        uuid.NewString(),
+		headers:   map[string]string{},
+		transient: map[string][]byte{},
+		params:    nil,
+	}
+
+	for _, config := range c.baseConfig {
+		config(opt)
+	}
+
+	for _, config := range configs {
+		config(opt)
+	}
+
+	params, err := json.Marshal(opt.params)
+	if err != nil {
+		return nil, err
+	}
+
+	tsg := (func(ctx context.Context, tg func(context.Context) string) string {
+		if tg != nil {
+			return tg(ctx)
+		}
+
+		return time.Now().UTC().Format(time.RFC3339)
+	})
+
+	url := (func(x *url.URL) string {
+		out := ""
+
+		if x != nil {
+			out = x.String()
+		}
+
+		return out
+	})
+
+	return &substratecommon.ConcreteRequestOptions{
+		Headers:             opt.headers,
+		Endpoint:            opt.endpoint,
+		ID:                  opt.id,
+		AuthToken:           opt.authToken,
+		Params:              params,
+		Transient:           opt.transient,
+		Timestamp:           tsg(opt.ctx, opt.timestampGenerator),
+		MSPFilter:           opt.mspFilter,
+		MinEndorsers:        opt.minEndorsers,
+		Creator:             opt.creator,
+		DependentTxID:       opt.dependentTxID,
+		DisableWritePolling: opt.disableWritePolling,
+		CCFetchURLDowngrade: opt.ccFetchURLDowngrade,
+		CCFetchURLProxy:     url(opt.ccFetchURLProxy),
+	}, nil
+}
+
+// Seed implements the ShiroClient interface.
+func (c *mockShiroClient) Seed(version string, configs ...Config) error {
+	return fmt.Errorf("Seed(...) is not supported")
+}
+
+// ShiroPhylum implements the ShiroClient interface.
+func (c *mockShiroClient) ShiroPhylum(configs ...Config) (string, error) {
+	return c.shiroPhylum, nil
+}
+
+// Init implements the ShiroClient interface.
+func (c *mockShiroClient) Init(phylum string, configs ...Config) error {
+	cro, err := c.flatten(configs...)
+	if err != nil {
+		return err
+	}
+	return c.conn.Init(c.tag, phylum, cro)
+}
+
+// Call implements the ShiroClient interface.
+func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...Config) (ShiroResponse, error) {
+	cro, err := c.flatten(configs...)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.conn.Call(c.tag, method, cro)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.HasError {
+		return &failureResponse{code: resp.ErrorCode, message: resp.ErrorMessage, data: resp.ErrorJSON}, nil
+	}
+
+	return &successResponse{
+		result: resp.ResultJSON,
+		txID:   resp.TransactionID,
+	}, nil
+}
+
+// QueryInfo implements the ShiroClient interface.
+func (c *mockShiroClient) QueryInfo(configs ...Config) (uint64, error) {
+	cro, err := c.flatten(configs...)
+	if err != nil {
+		return 0, err
+	}
+
+	return c.conn.QueryInfo(c.tag, cro)
+}
+
+// QueryBlock implements the ShiroClient interface.
+func (c *mockShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Block, error) {
+	cro, err := c.flatten(configs...)
+	if err != nil {
+		return nil, err
+	}
+
+	blk, err := c.conn.QueryBlock(c.tag, blockNumber, cro)
+	if err != nil {
+		return nil, err
+	}
+
+	transactionsIn := blk.Transactions
+
+	transactions := make([]Transaction, len(transactionsIn))
+
+	for _, transactionIn := range transactionsIn {
+		transactions = append(transactions, &transaction{id: transactionIn.ID, reason: transactionIn.Reason, event: transactionIn.Event})
+	}
+
+	return &block{transactions: transactions}, nil
+}
+
+// Snapshot copies the current state of the mock backend out to the supplied
+// io.Writer.
+func (c *mockShiroClient) Snapshot(w io.Writer) error {
+	bytes, err := c.conn.SnapshotMock(c.tag)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(bytes)
+	return err
+}
+
+// SetCreatorWithAttributes sets the transaction creator and their attributes.
+// Any previously set creator attributes are discarded.
+func (c *mockShiroClient) SetCreatorWithAttributes(creator string, attrs map[string]string) {
+	c.conn.SetCreatorWithAttributesMock(c.tag, creator, attrs)
+}
+
+// Close shuts down the mock backing database
+func (c *mockShiroClient) Close() error {
+	return c.conn.CloseMock(c.tag)
+}
+
+// NewMock creates a new mock ShiroClient with the given set of base
+// configs that will be applied to all commands.
+func NewMock(conn substratecommon.Substrate, name string, version string, configs ...Config) (MockShiroClient, error) {
+	return NewMockFrom(conn, name, version, nil, configs...)
+}
+
+// NewMockFrom creates a new mock ShiroClient with the given set of base configs
+// that will be applied to all commands.  The state is restored from the
+// supplied io.Reader.
+func NewMockFrom(conn substratecommon.Substrate, name string, version string, r io.Reader, configs ...Config) (MockShiroClient, error) {
+	var err error
+
+	var snapshot []byte
+
+	if r != nil {
+		snapshot, err = ioutil.ReadAll(r)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var tag string
+
+	tag, err = conn.NewMockFrom(name, version, snapshot)
+
+	return &mockShiroClient{baseConfig: configs, defaultLog: logrus.New(), conn: conn, tag: tag, shiroPhylum: name}, nil
+}
+
+type syncClient struct {
+	mutex      *sync.Mutex
+	underlying MockShiroClient
+}
+
+var _ MockShiroClient = (*syncClient)(nil)
 
 // Seed implements the ShiroClient interface.
 func (c *syncClient) Seed(version string, configs ...Config) error {
@@ -1035,14 +1338,6 @@ func (c *syncClient) ShiroPhylum(configs ...Config) (string, error) {
 	defer c.mutex.Unlock()
 
 	return c.underlying.ShiroPhylum(configs...)
-}
-
-// Upgrade implements the ShiroClient interface.
-func (c *syncClient) Upgrade(configs ...Config) error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.underlying.Upgrade(configs...)
 }
 
 // Init implements the ShiroClient interface.
@@ -1077,10 +1372,34 @@ func (c *syncClient) QueryBlock(blockNumber uint64, configs ...Config) (Block, e
 	return c.underlying.QueryBlock(blockNumber, configs...)
 }
 
+// Close implements the MockShiroClient interface.
+func (c *syncClient) Close() error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return c.underlying.Close()
+}
+
+// Snapshot implements the MockShiroClient interface.
+func (c *syncClient) Snapshot(w io.Writer) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return c.underlying.Snapshot(w)
+}
+
+// Snapshot implements the MockShiroClient interface.
+func (c *syncClient) SetCreatorWithAttributes(creator string, attrs map[string]string) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.underlying.SetCreatorWithAttributes(creator, attrs)
+}
+
 // NewSync returns a ShiroClient that will be synchronized to be
 // usable from more than one goroutine when the underlying
 // implementation is not thread-safe.
-func NewSync(shiroclient ShiroClient) ShiroClient {
+func NewSync(shiroclient MockShiroClient) MockShiroClient {
 	return &syncClient{mutex: &sync.Mutex{}, underlying: shiroclient}
 }
 
