@@ -14,12 +14,16 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
+	"github.com/hashicorp/go-hclog"
+	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/mockint"
+	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
 	"github.com/luthersystems/substratecommon"
 	"github.com/sirupsen/logrus"
 )
@@ -285,7 +289,7 @@ type ShiroClient interface {
 type MockShiroClient interface {
 	ShiroClient
 
-	// Close shuts down the mock backing database.
+	// Close shuts down the mock backing database and terminates the plugin.
 	Close() error
 
 	// Snapshot copies the current state of the mock backend out
@@ -1106,16 +1110,19 @@ func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Bloc
 
 // NewRPC creates a new RPC ShiroClient with the given set of base
 // configs that will be applied to all commands.
-func NewRPC(configs ...Config) ShiroClient {
-	return &rpcShiroClient{baseConfig: configs, defaultLog: logrus.New(), httpClient: http.Client{}}
+func NewRPC(clientConfigs []Config) ShiroClient {
+	return &rpcShiroClient{
+		baseConfig: clientConfigs,
+		defaultLog: logrus.New(),
+		httpClient: http.Client{},
+	}
 }
 
 // MOCK IMPLEMENTATION - forwards to Plugin
 
 type mockShiroClient struct {
 	baseConfig  []Config
-	defaultLog  *logrus.Logger
-	conn        substratecommon.Substrate
+	conn        *substratecommon.SubstrateConnection
 	tag         string
 	shiroPhylum string
 }
@@ -1198,7 +1205,7 @@ func (c *mockShiroClient) Init(phylum string, configs ...Config) error {
 	if err != nil {
 		return err
 	}
-	return c.conn.Init(c.tag, phylum, cro)
+	return c.conn.GetSubstrate().Init(c.tag, phylum, cro)
 }
 
 // Call implements the ShiroClient interface.
@@ -1208,7 +1215,7 @@ func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...Co
 		return nil, err
 	}
 
-	resp, err := c.conn.Call(c.tag, method, cro)
+	resp, err := c.conn.GetSubstrate().Call(c.tag, method, cro)
 	if err != nil {
 		return nil, err
 	}
@@ -1230,7 +1237,7 @@ func (c *mockShiroClient) QueryInfo(configs ...Config) (uint64, error) {
 		return 0, err
 	}
 
-	return c.conn.QueryInfo(c.tag, cro)
+	return c.conn.GetSubstrate().QueryInfo(c.tag, cro)
 }
 
 // QueryBlock implements the ShiroClient interface.
@@ -1240,7 +1247,7 @@ func (c *mockShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Blo
 		return nil, err
 	}
 
-	blk, err := c.conn.QueryBlock(c.tag, blockNumber, cro)
+	blk, err := c.conn.GetSubstrate().QueryBlock(c.tag, blockNumber, cro)
 	if err != nil {
 		return nil, err
 	}
@@ -1259,7 +1266,7 @@ func (c *mockShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Blo
 // Snapshot copies the current state of the mock backend out to the supplied
 // io.Writer.
 func (c *mockShiroClient) Snapshot(w io.Writer) error {
-	bytes, err := c.conn.SnapshotMock(c.tag)
+	bytes, err := c.conn.GetSubstrate().SnapshotMock(c.tag)
 	if err != nil {
 		return err
 	}
@@ -1270,40 +1277,79 @@ func (c *mockShiroClient) Snapshot(w io.Writer) error {
 // SetCreatorWithAttributes sets the transaction creator and their attributes.
 // Any previously set creator attributes are discarded.
 func (c *mockShiroClient) SetCreatorWithAttributes(creator string, attrs map[string]string) error {
-	return c.conn.SetCreatorWithAttributesMock(c.tag, creator, attrs)
+	return c.conn.GetSubstrate().SetCreatorWithAttributesMock(c.tag, creator, attrs)
 }
 
 // Close shuts down the mock backing database
 func (c *mockShiroClient) Close() error {
-	return c.conn.CloseMock(c.tag)
+	errMock := c.conn.GetSubstrate().CloseMock(c.tag)
+	errPlugin := c.conn.Close()
+	if errMock != nil {
+		return fmt.Errorf("failed to close mock client: %w", errMock)
+	}
+	if errPlugin != nil {
+		return fmt.Errorf("failed to close plugin: %w", errPlugin)
+	}
+	return nil
+}
+
+func hcpLogLevel(mockLevel mockint.LogLevel) hclog.Level {
+	switch mockLevel {
+	case mock.Debug:
+		return hclog.Debug
+	case mock.Info:
+		return hclog.Info
+	case mock.Warn:
+		return hclog.Warn
+	case mock.Error:
+		return hclog.Error
+	default:
+		return hclog.DefaultLevel
+	}
 }
 
 // NewMock creates a new mock ShiroClient with the given set of base
 // configs that will be applied to all commands.
-func NewMock(conn substratecommon.Substrate, name string, version string, configs ...Config) (MockShiroClient, error) {
-	return NewMockFrom(conn, name, version, nil, configs...)
-}
-
-// NewMockFrom creates a new mock ShiroClient with the given set of base configs
-// that will be applied to all commands.  The state is restored from the
-// supplied io.Reader.
-func NewMockFrom(conn substratecommon.Substrate, name string, version string, r io.Reader, configs ...Config) (MockShiroClient, error) {
-	var err error
-
-	var snapshot []byte
-
-	if r != nil {
-		snapshot, err = ioutil.ReadAll(r)
-		if err != nil {
-			return nil, err
+func NewMock(clientConfigs []Config, opts ...mock.Option) (MockShiroClient, error) {
+	config := &mockint.Config{
+		LogWriter: os.Stdout,
+	}
+	for _, opt := range opts {
+		opt(config)
+	}
+	if config.PluginPath == "" {
+		config.PluginPath = os.Getenv(mockint.DefaultPluginEnv)
+		if config.PluginPath == "" {
+			return nil, fmt.Errorf("%s not found in environment", mockint.DefaultPluginEnv)
 		}
 	}
-
+	pluginOpts := []substratecommon.ConnectOption{
+		substratecommon.ConnectWithCommand(config.PluginPath),
+		substratecommon.ConnectWithLogLevel(hcpLogLevel(config.LogLevel)),
+		substratecommon.ConnectWithAttachStdamp(config.LogWriter),
+	}
+	conn, err := substratecommon.NewSubstrateConnection(pluginOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("unable to connect to plugin: %w", err)
+	}
+	var snapshot []byte
+	if config.SnapshotReader != nil {
+		snapshot, err = ioutil.ReadAll(config.SnapshotReader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read snapshot: %w", err)
+		}
+	}
 	var tag string
-
-	tag, err = conn.NewMockFrom(name, version, snapshot)
-
-	return &mockShiroClient{baseConfig: configs, defaultLog: logrus.New(), conn: conn, tag: tag, shiroPhylum: name}, nil
+	tag, err = conn.GetSubstrate().NewMockFrom(mockint.PhylumName, mockint.PhylumVersion, snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create mock client: %w", err)
+	}
+	return &mockShiroClient{
+		baseConfig:  clientConfigs,
+		conn:        conn,
+		tag:         tag,
+		shiroPhylum: mockint.PhylumName,
+	}, nil
 }
 
 type syncClient struct {
