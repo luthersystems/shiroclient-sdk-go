@@ -532,12 +532,6 @@ func IsTimeoutError(err error) bool {
 	return se.code == ErrorCodeShiroClientTimeout
 }
 
-// Returns true if the RPC response error level corresponds to an
-// error in the ShiroClient layer.
-func (r *rpcres) isShiroClientError() bool {
-	return r.errorLevel == ErrorLevelShiroClient
-}
-
 // Returns an error object with the same detail message as the
 // ShiroClient error that was raised.
 func (r *rpcres) getShiroClientError() error {
@@ -719,11 +713,6 @@ func (c *rpcShiroClient) applyConfigs(configs ...Config) (*requestOptions, error
 	}
 
 	return opt, nil
-}
-
-// tsNow returns the timestamp of the current time
-func tsNow() string {
-	return time.Now().Format(time.RFC3339)
 }
 
 // Seed implements the ShiroClient interface.
