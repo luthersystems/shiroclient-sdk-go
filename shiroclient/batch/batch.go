@@ -56,8 +56,7 @@ const (
 )
 
 func (d *Driver) call(ctx context.Context, method string, params interface{}, batchName string, batchID string, requestID string, clientConfigs ...shiroclient.Config) []byte {
-	var fields logrus.Fields
-	fields = make(logrus.Fields)
+	fields := make(logrus.Fields)
 	if batchName != "" {
 		fields["batchName"] = batchName
 	}
