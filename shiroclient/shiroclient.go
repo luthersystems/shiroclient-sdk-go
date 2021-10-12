@@ -295,7 +295,7 @@ type MockShiroClient interface {
 	// SetCreatorWithAttributes sets the transaction creator and
 	// their attributes.  Any previously set creator attributes
 	// are discarded.
-	SetCreatorWithAttributes(creator string, attrs map[string]string)
+	SetCreatorWithAttributes(creator string, attrs map[string]string) error
 }
 
 // ShiroResponse is a wrapper for a response from a shiro
@@ -532,12 +532,6 @@ func IsTimeoutError(err error) bool {
 	return se.code == ErrorCodeShiroClientTimeout
 }
 
-// Returns true if the RPC response error level corresponds to an
-// error in the ShiroClient layer.
-func (r *rpcres) isShiroClientError() bool {
-	return r.errorLevel == ErrorLevelShiroClient
-}
-
 // Returns an error object with the same detail message as the
 // ShiroClient error that was raised.
 func (r *rpcres) getShiroClientError() error {
@@ -719,11 +713,6 @@ func (c *rpcShiroClient) applyConfigs(configs ...Config) (*requestOptions, error
 	}
 
 	return opt, nil
-}
-
-// tsNow returns the timestamp of the current time
-func tsNow() string {
-	return time.Now().Format(time.RFC3339)
 }
 
 // Seed implements the ShiroClient interface.
@@ -1280,8 +1269,8 @@ func (c *mockShiroClient) Snapshot(w io.Writer) error {
 
 // SetCreatorWithAttributes sets the transaction creator and their attributes.
 // Any previously set creator attributes are discarded.
-func (c *mockShiroClient) SetCreatorWithAttributes(creator string, attrs map[string]string) {
-	c.conn.SetCreatorWithAttributesMock(c.tag, creator, attrs)
+func (c *mockShiroClient) SetCreatorWithAttributes(creator string, attrs map[string]string) error {
+	return c.conn.SetCreatorWithAttributesMock(c.tag, creator, attrs)
 }
 
 // Close shuts down the mock backing database
@@ -1389,11 +1378,11 @@ func (c *syncClient) Snapshot(w io.Writer) error {
 }
 
 // Snapshot implements the MockShiroClient interface.
-func (c *syncClient) SetCreatorWithAttributes(creator string, attrs map[string]string) {
+func (c *syncClient) SetCreatorWithAttributes(creator string, attrs map[string]string) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	c.underlying.SetCreatorWithAttributes(creator, attrs)
+	return c.underlying.SetCreatorWithAttributes(creator, attrs)
 }
 
 // NewSync returns a ShiroClient that will be synchronized to be

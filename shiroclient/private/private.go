@@ -317,7 +317,7 @@ func Purge(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, confi
 		return err
 	}
 	if gotDSID != dsid {
-		fmt.Errorf("unexpected response from purge: got %s != expected %s", gotDSID, dsid)
+		return fmt.Errorf("unexpected response from purge: got %s != expected %s", gotDSID, dsid)
 	}
 	return nil
 }
