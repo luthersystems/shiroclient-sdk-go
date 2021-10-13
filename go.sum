@@ -27,8 +27,8 @@ github.com/hashicorp/yamux v0.0.0-20180604194846-3520598351bb h1:b5rjCoWHc7eqmAS
 github.com/hashicorp/yamux v0.0.0-20180604194846-3520598351bb/go.mod h1:+NfK9FKeTrX5uv1uIXGdwYDTeHna2qgaIlx54MXqjAM=
 github.com/jhump/protoreflect v1.6.0 h1:h5jfMVslIg6l29nsMs0D8Wj17RDVdNYti0vDN/PZZoE=
 github.com/jhump/protoreflect v1.6.0/go.mod h1:eaTn3RZAmMBcV0fifFvlm6VHNz3wSkYyXYWUh7ymB74=
-github.com/luthersystems/substratecommon v0.0.0-20210316212253-8c5885b2af95 h1:ggcPE76DzpditOpk1O44eoCozgSm5Y7CxBc5O4nc4Vg=
-github.com/luthersystems/substratecommon v0.0.0-20210316212253-8c5885b2af95/go.mod h1:vm9UFeHKURJ+LECCTkeBqIGLo+DRZ1Q9ms1h4NB4MzI=
+github.com/luthersystems/substratecommon v0.0.0-20211013221307-27cb9c7eca39 h1:TGf3+ptS9Aojo7SmH5sYOHMvts2mq21rdx2XF0+CmqE=
+github.com/luthersystems/substratecommon v0.0.0-20211013221307-27cb9c7eca39/go.mod h1:vm9UFeHKURJ+LECCTkeBqIGLo+DRZ1Q9ms1h4NB4MzI=
 github.com/mitchellh/go-testing-interface v0.0.0-20171004221916-a61a99592b77 h1:7GoSOOW2jpsfkntVKaS2rAr1TJqfcxotyaUcuxoZSzg=
 github.com/mitchellh/go-testing-interface v0.0.0-20171004221916-a61a99592b77/go.mod h1:kRemZodwjscx+RGhAo8eIhFbs2+BFgRtFPeD/KE+zxI=
 github.com/oklog/run v1.0.0 h1:Ru7dDtJNOyC66gQ5dQmaCa0qIsAUFY3sFpK1Xk8igrw=
