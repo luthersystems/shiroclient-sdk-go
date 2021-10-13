@@ -575,8 +575,12 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *requestOptions) (*rpcres, 
 		return nil, err
 	}
 
-	defer io.Copy(ioutil.Discard, httpRes.Body)
-	defer httpRes.Body.Close()
+	defer func() {
+		err := httpRes.Body.Close()
+		if err != nil && opt.log != nil {
+			opt.log.WithError(err).Warn("failed to close response body")
+		}
+	}()
 
 	msg, err := ioutil.ReadAll(httpRes.Body)
 	if err != nil {
