@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/golang/protobuf/jsonpb"
@@ -215,17 +214,6 @@ func WithCCFetchURLProxy(proxy *url.URL) Config {
 	return (func(r *requestOptions) {
 		r.ccFetchURLProxy = proxy
 	})
-}
-
-// ProbeTimestampGenerator returns the timestamp generator implied by
-// an array of options.
-func ProbeTimestampGenerator(configs []Config) (func(context.Context) string, error) {
-	rpc := &rpcShiroClient{baseConfig: nil, defaultLog: nil, httpClient: http.Client{}}
-	ro, err := rpc.applyConfigs(configs...)
-	if err != nil {
-		return nil, err
-	}
-	return ro.timestampGenerator, nil
 }
 
 // ProbeForCall returns the option values required for a call implied
@@ -1350,92 +1338,6 @@ func NewMock(clientConfigs []Config, opts ...mock.Option) (MockShiroClient, erro
 		tag:         tag,
 		shiroPhylum: mockint.PhylumName,
 	}, nil
-}
-
-type syncClient struct {
-	mutex      *sync.Mutex
-	underlying MockShiroClient
-}
-
-var _ MockShiroClient = (*syncClient)(nil)
-
-// Seed implements the ShiroClient interface.
-func (c *syncClient) Seed(version string, configs ...Config) error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.underlying.Seed(version, configs...)
-}
-
-// ShiroPhylum implements the ShiroClient interface.
-func (c *syncClient) ShiroPhylum(configs ...Config) (string, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.underlying.ShiroPhylum(configs...)
-}
-
-// Init implements the ShiroClient interface.
-func (c *syncClient) Init(phylum string, configs ...Config) error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.underlying.Init(phylum, configs...)
-}
-
-// Call implements the ShiroClient interface.
-func (c *syncClient) Call(ctx context.Context, method string, configs ...Config) (ShiroResponse, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.underlying.Call(ctx, method, configs...)
-}
-
-// QueryInfo implements the ShiroClient interface.
-func (c *syncClient) QueryInfo(configs ...Config) (uint64, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.underlying.QueryInfo(configs...)
-}
-
-// QueryBlock implements the ShiroClient interface.
-func (c *syncClient) QueryBlock(blockNumber uint64, configs ...Config) (Block, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.underlying.QueryBlock(blockNumber, configs...)
-}
-
-// Close implements the MockShiroClient interface.
-func (c *syncClient) Close() error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.underlying.Close()
-}
-
-// Snapshot implements the MockShiroClient interface.
-func (c *syncClient) Snapshot(w io.Writer) error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.underlying.Snapshot(w)
-}
-
-// Snapshot implements the MockShiroClient interface.
-func (c *syncClient) SetCreatorWithAttributes(creator string, attrs map[string]string) error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	return c.underlying.SetCreatorWithAttributes(creator, attrs)
-}
-
-// NewSync returns a ShiroClient that will be synchronized to be
-// usable from more than one goroutine when the underlying
-// implementation is not thread-safe.
-func NewSync(shiroclient MockShiroClient) MockShiroClient {
-	return &syncClient{mutex: &sync.Mutex{}, underlying: shiroclient}
 }
 
 // EncodePhylumBytes takes decoded phylum (lisp code) and encodes it
