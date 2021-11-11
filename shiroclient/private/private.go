@@ -273,23 +273,24 @@ func Decode(ctx context.Context, client shiroclient.ShiroClient, encoded *Encode
 
 // Export exports all sensitive data on the blockchain pertaining to a data
 // subject with data subject ID "dsid".
-func Export(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, exported map[string]interface{}, configs ...shiroclient.Config) error {
+func Export(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, configs ...shiroclient.Config) (map[string]interface{}, error) {
 	if dsid == "" {
-		return fmt.Errorf("invalid empty DSID")
+		return nil, fmt.Errorf("invalid empty DSID")
 	}
 	configs = append(configs, WithParam(dsid))
 	resp, err := client.Call(ctx, ShiroEndpointExport, configs...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if resp.Error() != nil {
-		return fmt.Errorf(resp.Error().Message())
+		return nil, fmt.Errorf(resp.Error().Message())
 	}
-	err = resp.UnmarshalTo(exported)
+	var exported map[string]interface{}
+	err = resp.UnmarshalTo(&exported)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return exported, nil
 }
 
 // Purge removes all sensitive data on the blockchain pertaining to a data
@@ -312,7 +313,7 @@ func Purge(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, confi
 		return fmt.Errorf(resp.Error().Message())
 	}
 	var gotDSID DSID
-	err = resp.UnmarshalTo(gotDSID)
+	err = resp.UnmarshalTo(&gotDSID)
 	if err != nil {
 		return err
 	}
@@ -333,7 +334,7 @@ func ProfileToDSID(ctx context.Context, client shiroclient.ShiroClient, profile 
 		return "", fmt.Errorf(resp.Error().Message())
 	}
 	var gotDSID DSID
-	err = resp.UnmarshalTo(gotDSID)
+	err = resp.UnmarshalTo(&gotDSID)
 	if err != nil {
 		return "", err
 	}
