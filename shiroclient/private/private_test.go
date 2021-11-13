@@ -2,15 +2,15 @@ package private_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/private"
 	"github.com/luthersystems/substratecommon"
+	"github.com/stretchr/testify/require"
 
 	_ "embed"
 )
@@ -49,10 +49,13 @@ func TestPrivate(t *testing.T) {
 		{
 			Name: "export missing",
 			Func: func(t *testing.T, client shiroclient.ShiroClient) {
-				var exportedData map[string]interface{}
-				err := private.Export(context.Background(), client, "DSID-missing", exportedData)
-				if err == nil {
-					t.Fatal("expected error")
+				data, err := private.Export(context.Background(), client, "DSID-missing")
+				if err != nil {
+					// NOTE: in future versions this will return an error
+					t.Fatalf("unexpected error: %s", err)
+				}
+				if len(data) != 0 {
+					t.Fatalf("expected empty data")
 				}
 			},
 		},
@@ -68,9 +71,13 @@ func TestPrivate(t *testing.T) {
 		{
 			Name: "profile to missing DSID",
 			Func: func(t *testing.T, client shiroclient.ShiroClient) {
-				_, err := private.ProfileToDSID(context.Background(), client, []string{"profile-missing"})
-				if err == nil {
-					t.Fatal("expected error")
+				dsid, err := private.ProfileToDSID(context.Background(), client, []string{"profile-missing"})
+				if err != nil {
+					// NOTE: this will return an error in future substrate versions
+					t.Fatalf("unexpected error: %s", err)
+				}
+				if dsid != "" {
+					t.Fatal("expected missing DSID")
 				}
 			},
 		},
@@ -307,6 +314,43 @@ func TestPrivate(t *testing.T) {
 				err := wrap(message, &decodedMessage)
 				if err == nil {
 					t.Fatalf("expected IV error")
+				}
+			},
+		},
+		{
+			Name: "export/purge ok",
+			Func: func(t *testing.T, client shiroclient.ShiroClient) {
+				ctx := context.Background()
+				dsid, err := private.ProfileToDSID(ctx, client, []string{"fnord"})
+				if err != nil {
+					t.Fatalf("unexpected profile error: %s", err)
+				}
+
+				exportedData, err := private.Export(ctx, client, dsid)
+				if err != nil {
+					t.Fatalf("unexpected export error: %s", err)
+				}
+
+				prettyData, err := json.Marshal(exportedData)
+				if err != nil {
+					t.Fatalf("unexpected unmarshal error: %s", err)
+				}
+
+				if string(prettyData) != `{"test-key":{"fnord":"fnord","hello":"world"}}` {
+					t.Fatalf("unexpected data: %s", string(prettyData))
+				}
+
+				err = private.Purge(ctx, client, dsid)
+				if err != nil {
+					t.Fatalf("unexpected purge: error %s", err)
+				}
+
+				dsid, err = private.ProfileToDSID(ctx, client, []string{"fnord"})
+				if err != nil {
+					t.Fatalf("unexpected profile error: %s", err)
+				}
+				if dsid != "" {
+					t.Fatalf("expected empty DSID")
 				}
 			},
 		},
