@@ -354,7 +354,8 @@ func WrapCall(ctx context.Context, client shiroclient.ShiroClient, method string
 		if err != nil {
 			return fmt.Errorf("wrap encode error: %s", err)
 		}
-		configs = append([]shiroclient.Config{WithParam(encReq)}, configs...)
+		// IMPORTANT: make sure we override existing params
+		configs = append(configs, WithParam(encReq))
 		resp, err := client.Call(ctx, method, configs...)
 		if err != nil {
 			return fmt.Errorf("wrap call error: %s", err)
