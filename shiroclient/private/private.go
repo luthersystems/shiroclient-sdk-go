@@ -346,6 +346,8 @@ func ProfileToDSID(ctx context.Context, client shiroclient.ShiroClient, profile 
 // The configs passed to this are passed to the wrapped call, and not the
 // encode and decode operations. This is to prevent the caller from accidently
 // overwriting the transient data fields.
+// If the caller passes "WithParam" explicitly then this will be ignored in
+// favor of the `message`.
 // IMPORTANT: The wrapper assumes the wrapped endpoint only takes a single
 // argument!
 func WrapCall(ctx context.Context, client shiroclient.ShiroClient, method string, encTransforms ...*Transform) func(message interface{}, output interface{}, configs ...shiroclient.Config) error {
@@ -354,7 +356,8 @@ func WrapCall(ctx context.Context, client shiroclient.ShiroClient, method string
 		if err != nil {
 			return fmt.Errorf("wrap encode error: %s", err)
 		}
-		configs = append([]shiroclient.Config{WithParam(encReq)}, configs...)
+		// IMPORTANT: make sure we override existing params
+		configs = append(configs, WithParam(encReq))
 		resp, err := client.Call(ctx, method, configs...)
 		if err != nil {
 			return fmt.Errorf("wrap call error: %s", err)
