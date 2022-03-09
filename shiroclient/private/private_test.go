@@ -354,6 +354,22 @@ func TestPrivate(t *testing.T) {
 				}
 			},
 		},
+		{
+			// IMPORTANT: this test must run after `wrap`!
+			Name: "wrap no-op",
+			Func: func(t *testing.T, client shiroclient.ShiroClient) {
+				var transforms []*private.Transform
+				wrap := private.WrapCall(context.Background(), client, "nop", transforms...)
+				decodedMessage := struct{}{}
+				err := wrap(nil, &decodedMessage)
+				if err != nil {
+					t.Fatalf("wrap: %s", err)
+				}
+				if struct{}{} != decodedMessage {
+					t.Fatalf("message mismatch: expected: %v != got: %v", nil, decodedMessage)
+				}
+			},
+		},
 	}
 	err := substratecommon.Connect((func(conn substratecommon.Substrate) error {
 		client, err := newMockClient(conn)
