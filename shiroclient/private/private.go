@@ -198,7 +198,10 @@ func WithTransientMXF(req *EncodeRequest) ([]shiroclient.Config, error) {
 // If there no transforms, then encode simply returns a thin wrapper
 // over the encoded message bytes.
 func Encode(ctx context.Context, client shiroclient.ShiroClient, message interface{}, transforms []*Transform, configs ...shiroclient.Config) (*EncodedResponse, error) {
-	if len(transforms) == 0 || message == nil {
+	if message == nil {
+		return nil, nil
+	}
+	if len(transforms) == 0 {
 		// fast path, nothing to do.
 		rawBytes, err := json.Marshal(message)
 		if err != nil {
@@ -356,8 +359,10 @@ func WrapCall(ctx context.Context, client shiroclient.ShiroClient, method string
 		if err != nil {
 			return fmt.Errorf("wrap encode error: %s", err)
 		}
-		// IMPORTANT: make sure we override existing params
-		configs = append(configs, WithParam(encReq))
+		if encReq != nil {
+			// IMPORTANT: make sure we override existing params
+			configs = append(configs, WithParam(encReq))
+		}
 		resp, err := client.Call(ctx, method, configs...)
 		if err != nil {
 			return fmt.Errorf("wrap call error: %s", err)

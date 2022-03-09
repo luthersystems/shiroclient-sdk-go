@@ -19,6 +19,9 @@
 (defendpoint "wrap_output" (msg)
              (route-success (statedb:get "test-key")))
 
+(defendpoint "nop" ()
+             (route-success ()))
+
 (defendpoint "wrap_input" (msg)
              (let* ([dec (private:mxf-decode msg)]
                     [dec-msg (first dec)])
