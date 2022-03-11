@@ -355,13 +355,13 @@ func ProfileToDSID(ctx context.Context, client shiroclient.ShiroClient, profile 
 // argument!
 func WrapCall(ctx context.Context, client shiroclient.ShiroClient, method string, encTransforms ...*Transform) func(message interface{}, output interface{}, configs ...shiroclient.Config) error {
 	return func(message interface{}, output interface{}, configs ...shiroclient.Config) error {
-		encReq, err := Encode(ctx, client, message, encTransforms, configs...)
+		encodingResponse, err := Encode(ctx, client, message, encTransforms, configs...)
 		if err != nil {
 			return fmt.Errorf("wrap encode error: %s", err)
 		}
-		if encReq != nil {
+		if encodingResponse != nil {
 			// IMPORTANT: make sure we override existing params
-			configs = append(configs, WithParam(encReq))
+			configs = append(configs, WithParam(encodingResponse))
 		}
 		resp, err := client.Call(ctx, method, configs...)
 		if err != nil {
