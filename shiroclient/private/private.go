@@ -129,6 +129,9 @@ type EncodedResponse struct {
 	// RawMessage is only set to the raw response if encode did not actually
 	// perform any encoding.
 	rawMessage *json.RawMessage
+	// encodeTransactionID (optional) specifies the Tx ID of the Encode call so
+	// that further transactions can set a dependency on it.
+	encodeTransactionID string
 }
 
 // MarshalJSON implements json.Marshaler.
@@ -234,6 +237,9 @@ func Encode(ctx context.Context, client shiroclient.ShiroClient, message interfa
 	err = resp.UnmarshalTo(enc)
 	if err != nil {
 		return nil, err
+	}
+	if resp.TransactionID() != "" {
+		enc.encodeTransactionID = resp.TransactionID()
 	}
 	return enc, nil
 }
@@ -363,6 +369,9 @@ func WrapCall(ctx context.Context, client shiroclient.ShiroClient, method string
 			// IMPORTANT: make sure we override existing params
 			configs = append(configs, WithParam(encodingResponse))
 		}
+		if encodingResponse.encodeTransactionID != "" {
+			configs = append(configs, shiroclient.WithDependentTxID(encodingResponse.encodeTransactionID))
+		}
 		resp, err := client.Call(ctx, method, configs...)
 		if err != nil {
 			return fmt.Errorf("wrap call error: %s", err)
@@ -374,6 +383,9 @@ func WrapCall(ctx context.Context, client shiroclient.ShiroClient, method string
 		err = resp.UnmarshalTo(encResp)
 		if err != nil {
 			return err
+		}
+		if resp.TransactionID() != "" {
+			configs = append(configs, shiroclient.WithDependentTxID(resp.TransactionID()))
 		}
 		err = Decode(ctx, client, encResp, output, configs...)
 		if err != nil {
