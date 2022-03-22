@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/golang/protobuf/proto"
@@ -365,10 +366,12 @@ func WrapCall(ctx context.Context, client shiroclient.ShiroClient, method string
 		if err != nil {
 			return fmt.Errorf("wrap encode error: %s", err)
 		}
-		if encodingResponse != nil {
-			// IMPORTANT: make sure we override existing params
-			configs = append(configs, WithParam(encodingResponse))
+		if encodingResponse == nil {
+			log.Print("WrapCall exiting with no response")
+			return nil
 		}
+		// IMPORTANT: make sure we override existing params
+		configs = append(configs, WithParam(encodingResponse))
 		if encodingResponse.encodeTransactionID != "" {
 			configs = append(configs, shiroclient.WithDependentTxID(encodingResponse.encodeTransactionID))
 		}
