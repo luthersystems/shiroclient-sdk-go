@@ -318,6 +318,8 @@ func TestPrivate(t *testing.T) {
 			},
 		},
 		{
+			// IMPORTANT: this test must run after `wrap`!
+			// Also: this test must be run if `wrap` is (else build fails)
 			Name: "export/purge ok",
 			Func: func(t *testing.T, client shiroclient.ShiroClient) {
 				ctx := context.Background()
