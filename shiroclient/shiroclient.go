@@ -223,7 +223,8 @@ func WithCCFetchURLProxy(proxy *url.URL) Config {
 // by an array of options.
 func ProbeForCall(configs []Config) (context.Context, string, func(context.Context) string, logrus.Fields, string, string, interface{}, map[string][]byte, error) {
 	rpc := &rpcShiroClient{baseConfig: nil, defaultLog: nil, httpClient: http.Client{}}
-	ro, err := rpc.applyConfigs(nil, configs...)
+	ctx := context.TODO()
+	ro, err := rpc.applyConfigs(ctx, configs...)
 	if err != nil {
 		return nil, "", nil, nil, "", "", nil, nil, err
 	}
@@ -234,7 +235,8 @@ func ProbeForCall(configs []Config) (context.Context, string, func(context.Conte
 // mock implied by an array of options.
 func ProbeForNew(configs []Config) (bool, *url.URL, error) {
 	rpc := &rpcShiroClient{baseConfig: nil, defaultLog: nil, httpClient: http.Client{}}
-	ro, err := rpc.applyConfigs(nil, configs...)
+	ctx := context.TODO()
+	ro, err := rpc.applyConfigs(ctx, configs...)
 	if err != nil {
 		return false, nil, err
 	}
@@ -838,14 +840,10 @@ func urlQueryAppend(u *url.URL, vals url.Values) {
 	}
 }
 
-// tsNow returns the timestamp of the current time
-func tsNow() string {
-	return time.Now().Format(time.RFC3339)
-}
-
 // Seed implements the ShiroClient interface.
 func (c *rpcShiroClient) Seed(version string, configs ...Config) error {
-	opt, err := c.applyConfigs(nil, configs...)
+	ctx := context.TODO()
+	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
 		return err
 	}
@@ -878,7 +876,8 @@ func (c *rpcShiroClient) Seed(version string, configs ...Config) error {
 
 // ShiroPhylum implements the ShiroClient interface.
 func (c *rpcShiroClient) ShiroPhylum(configs ...Config) (string, error) {
-	opt, err := c.applyConfigs(nil, configs...)
+	ctx := context.TODO()
+	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
 		return "", err
 	}
@@ -914,7 +913,8 @@ func (c *rpcShiroClient) ShiroPhylum(configs ...Config) (string, error) {
 
 // Init implements the ShiroClient interface.
 func (c *rpcShiroClient) Init(phylum string, configs ...Config) error {
-	opt, err := c.applyConfigs(nil, configs...)
+	ctx := context.TODO()
+	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
 		return err
 	}
@@ -947,7 +947,7 @@ func (c *rpcShiroClient) Init(phylum string, configs ...Config) error {
 
 // Call implements the ShiroClient interface.
 func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Config) (ShiroResponse, error) {
-	opt, err := c.applyConfigs(nil, configs...)
+	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
 		return nil, err
 	}
@@ -1044,7 +1044,8 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Con
 
 // QueryInfo implements the ShiroClient interface.
 func (c *rpcShiroClient) QueryInfo(configs ...Config) (uint64, error) {
-	opt, err := c.applyConfigs(nil, configs...)
+	ctx := context.TODO()
+	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
 		return 0, err
 	}
@@ -1080,7 +1081,8 @@ func (c *rpcShiroClient) QueryInfo(configs ...Config) (uint64, error) {
 
 // QueryBlock implements the ShiroClient interface.
 func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Block, error) {
-	opt, err := c.applyConfigs(nil, configs...)
+	ctx := context.TODO()
+	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
 		return nil, err
 	}
