@@ -1,6 +1,7 @@
-# Contributing to ELPS
+# Contributing to shiroclient-sdk-go
 
-ELPS is an open source project welcome to contributions from the community.
+shiroclient-sdk-go is an open source project welcome to contributions from the
+community.
 
 Please file issues on GitHub if you believe there is a bug or if documentation
 is unclear.
