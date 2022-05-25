@@ -12,7 +12,7 @@ include ${PROJECT_REL_DIR}/common.mk
 .PHONY: default
 default: all
 
-.PHONY: all push clean
+.PHONY: all clean
 
 clean:
 	rm -rf build
@@ -37,7 +37,7 @@ go-test:
 	${GO_TEST_TIMEOUT_10} ./...
 
 .PHONY: static-checks
-static-checks: ${GO_PKG_DUMMY}
+static-checks:
 	./scripts/static-checks.sh
 
 .PHONY: test
