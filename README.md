@@ -5,5 +5,7 @@ gateway. It does not support mock mode.
 
 [![CircleCI](https://circleci.com/gh/luthersystems/shiroclient-sdk-go.svg?style=svg)](https://circleci.com/gh/luthersystems/shiroclient-sdk-go)
 
+https://pkg.go.dev/github.com/luthersystems/shiroclient-sdk-go
+
 Argument configuration is identical to the shiroclient Java
 [implementation](https://github.com/luthersystems/shiroclient-sdk-java).
