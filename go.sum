@@ -33,8 +33,8 @@ github.com/hashicorp/yamux v0.0.0-20180604194846-3520598351bb h1:b5rjCoWHc7eqmAS
 github.com/hashicorp/yamux v0.0.0-20180604194846-3520598351bb/go.mod h1:+NfK9FKeTrX5uv1uIXGdwYDTeHna2qgaIlx54MXqjAM=
 github.com/jhump/protoreflect v1.6.0 h1:h5jfMVslIg6l29nsMs0D8Wj17RDVdNYti0vDN/PZZoE=
 github.com/jhump/protoreflect v1.6.0/go.mod h1:eaTn3RZAmMBcV0fifFvlm6VHNz3wSkYyXYWUh7ymB74=
-github.com/luthersystems/substratecommon v0.0.0-20220525184955-8baaa0c557e8 h1:sFGjLzL6CCCInTXHnlENaPSKjT5CKqKmmiEvcVk4tQ4=
-github.com/luthersystems/substratecommon v0.0.0-20220525184955-8baaa0c557e8/go.mod h1:5zcOJC23goso/qOAnN9FkjvUFfebJ+ogr5m71LkZtL4=
+github.com/luthersystems/substratecommon v0.0.0-20220525205431-770a01abef5a h1:SVgdXcLOsZ7EzI7SWWt4kU4G+hvEQgHwjOyRZ62jzdw=
+github.com/luthersystems/substratecommon v0.0.0-20220525205431-770a01abef5a/go.mod h1:5zcOJC23goso/qOAnN9FkjvUFfebJ+ogr5m71LkZtL4=
 github.com/mattn/go-colorable v0.1.4 h1:snbPLB8fVfU9iwbbo30TPtbLRzwWu6aJS6Xh4eaaviA=
 github.com/mattn/go-colorable v0.1.4/go.mod h1:U0ppj6V5qS13XJ6of8GYAs25YV2eR4EVcfRqFIhoBtE=
 github.com/mattn/go-isatty v0.0.8/go.mod h1:Iq45c/XA43vh69/j3iqttzPXn0bhXyGjM0Hdxcsrc5s=

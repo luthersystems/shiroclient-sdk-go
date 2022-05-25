@@ -17,7 +17,9 @@ import (
 	"os"
 	"time"
 
+	//lint:ignore SA1019 we are not ready to upgrade proto lib yet
 	"github.com/golang/protobuf/jsonpb"
+	//lint:ignore SA1019 we are not ready to upgrade proto lib yet
 	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-hclog"

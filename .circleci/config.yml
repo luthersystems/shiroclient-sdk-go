@@ -6,5 +6,6 @@ jobs:
     steps:
       - checkout
       - run: apt-get update && apt-get install -y jq # TODO: include in build-go
+      - run: go install honnef.co/go/tools/cmd/staticcheck@2021.1.2 # TODO: include in build-go
       - run: echo $LUTHER_LICENSE | base64 -d > .luther-license.yaml
       - run: make citest

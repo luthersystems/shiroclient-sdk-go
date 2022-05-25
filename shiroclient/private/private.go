@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	//lint:ignore SA1019 we are not ready to upgrade proto lib yet
 	"github.com/golang/protobuf/jsonpb"
+	//lint:ignore SA1019 we are not ready to upgrade proto lib yet
 	"github.com/golang/protobuf/proto"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
 )
