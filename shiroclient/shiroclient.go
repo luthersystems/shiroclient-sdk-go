@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"time"
 
 	"github.com/golang/protobuf/jsonpb"
@@ -220,7 +221,7 @@ func WithCCFetchURLProxy(proxy *url.URL) Config {
 // by an array of options.
 func ProbeForCall(configs []Config) (context.Context, string, func(context.Context) string, logrus.Fields, string, string, interface{}, map[string][]byte, error) {
 	rpc := &rpcShiroClient{baseConfig: nil, defaultLog: nil, httpClient: http.Client{}}
-	ro, err := rpc.applyConfigs(configs...)
+	ro, err := rpc.applyConfigs(nil, configs...)
 	if err != nil {
 		return nil, "", nil, nil, "", "", nil, nil, err
 	}
@@ -231,7 +232,7 @@ func ProbeForCall(configs []Config) (context.Context, string, func(context.Conte
 // mock implied by an array of options.
 func ProbeForNew(configs []Config) (bool, *url.URL, error) {
 	rpc := &rpcShiroClient{baseConfig: nil, defaultLog: nil, httpClient: http.Client{}}
-	ro, err := rpc.applyConfigs(configs...)
+	ro, err := rpc.applyConfigs(nil, configs...)
 	if err != nil {
 		return false, nil, err
 	}
@@ -315,6 +316,27 @@ type Error interface {
 	DataJSON() []byte
 }
 
+func rpcError(resp ShiroResponse) error {
+	err := resp.Error()
+	if err != nil {
+		return &_rpcError{err}
+	}
+	return nil
+}
+
+type _rpcError struct {
+	err Error
+}
+
+func (e *_rpcError) Error() string {
+	trailer := ""
+	js := e.err.DataJSON()
+	if len(js) > 0 {
+		trailer = fmt.Sprintf(" %s", js)
+	}
+	return fmt.Sprintf("rpc error code %v %s%s", e.err.Code(), e.err.Message(), trailer)
+}
+
 // Block is a wrapper for summary information about a block.
 type Block interface {
 	Hash() string
@@ -327,6 +349,34 @@ type Transaction interface {
 	Reason() string
 	Event() []byte
 	ChaincodeID() string
+}
+
+// HealthCheck is a collection of reports detailing connectivity and health of
+// system components (e.g. phylum, RPC gateway, etc).  See RemoteHealthCheck.
+type HealthCheck interface {
+	Reports() []HealthCheckReport
+}
+
+// HealthCheckReport details the connectivity/health of an individual system
+// component as part of a HealthCheck.  When inspecting HealthCheckReports a
+// service should only be considered operational if its reported status is
+// "UP".  Any other status indicates a potential service interruption.
+//
+// 		for _, report := range healthcheck {
+//			if report.Status != "UP" {
+//				ringAlarm(report)
+//			}
+//		}
+//
+type HealthCheckReport interface {
+	// Timestamp of when the report was generated (RFC3339).
+	Timestamp() string
+	// Status of the service.
+	Status() string
+	// Name of the service.
+	ServiceName() string
+	// Version of the service.
+	ServiceVersion() string
 }
 
 // RESPONSE IMPLEMENTATIONS
@@ -492,6 +542,7 @@ type rpcShiroClient struct {
 }
 
 var _ ShiroClient = (*rpcShiroClient)(nil)
+var _ smartHealthCheck = (*rpcShiroClient)(nil)
 
 // rpcres is a type for a partially decoded RPC response.
 type rpcres struct {
@@ -677,7 +728,7 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *requestOptions) (*rpcres, 
 
 // applyConfigs applies configs -- baseConfigs supplied in the
 // constructor first, followed by configs arguments.
-func (c *rpcShiroClient) applyConfigs(configs ...Config) (*requestOptions, error) {
+func (c *rpcShiroClient) applyConfigs(ctx context.Context, configs ...Config) (*requestOptions, error) {
 	uuid, err := uuid.NewRandom()
 	if err != nil {
 		return nil, err
@@ -696,6 +747,7 @@ func (c *rpcShiroClient) applyConfigs(configs ...Config) (*requestOptions, error
 		mspFilter:           nil,
 		minEndorsers:        0,
 		creator:             "",
+		ctx:                 ctx,
 		dependentTxID:       "",
 		disableWritePolling: false,
 	}
@@ -711,9 +763,87 @@ func (c *rpcShiroClient) applyConfigs(configs ...Config) (*requestOptions, error
 	return opt, nil
 }
 
+// HealthCheck uses the RPC gateway server's health endpoint to check
+// connectivity to the gateway itself and any specified upstream services.
+// HealthCheck is not part of the ShiroClient interface but it is recognized by
+// the RemoteHealthCheck function.
+func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, configs ...Config) (HealthCheck, error) {
+	// Validate config and transform params
+	opt, err := c.applyConfigs(ctx, configs...)
+	if err != nil {
+		return nil, fmt.Errorf("healthcheck config: %w", err)
+	}
+	if opt.endpoint == "" {
+		return nil, errors.New("ShiroClient.HealthCheck expected an endpoint to be set")
+	}
+	checkURL, err := gatewayHealthCheckURL(opt.endpoint, services)
+	if err != nil {
+		return nil, fmt.Errorf("healthcheck invalid endpoint: %w", err)
+	}
+
+	// Do the health check
+	hreq, err := http.NewRequestWithContext(ctx, "GET", checkURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("healthcheck request: %w", err)
+	}
+	hresp, err := c.httpClient.Do(hreq)
+	if err != nil {
+		return nil, fmt.Errorf("healthcheck perform: %w", err)
+	}
+	defer hresp.Body.Close()
+	body, err := ioutil.ReadAll(hresp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("healthcheck read response: %w", err)
+	}
+	resp, err := unmarshalHealthResponse(body)
+	if err != nil {
+		return nil, fmt.Errorf("healthcheck bad response: %w", err)
+	}
+
+	// resp should not contain an exception
+	return resp, nil
+}
+
+func gatewayHealthCheckURL(endpoint string, services []string) (string, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("invalid gateway url: %w", err)
+	}
+	u.Path = path.Join(u.Path, "health_check")
+	_, err = url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return "", fmt.Errorf("invalid gateway query parameters: %w", err)
+	}
+	if len(services) > 0 {
+		urlQueryAppend(u, url.Values{"service": services})
+	}
+	return u.String(), nil
+}
+
+// urlQueryAppend modifies u, appending a set of key-value pairs to its query.
+// urlQueryAppend attempts to avoid rearranging previously existing query
+// parameters in u.
+func urlQueryAppend(u *url.URL, vals url.Values) {
+	// Semi-hacky append of additional (healthcheck) query params a url which
+	// may already contain a query string.  Attempting to parse the query can
+	// be a lossy conversion in the case of malformed input.
+	paramStr := vals.Encode()
+	switch {
+	case u.RawQuery == "":
+		u.RawQuery = paramStr
+	default:
+		u.RawQuery += "&" + paramStr
+	}
+}
+
+// tsNow returns the timestamp of the current time
+func tsNow() string {
+	return time.Now().Format(time.RFC3339)
+}
+
 // Seed implements the ShiroClient interface.
 func (c *rpcShiroClient) Seed(version string, configs ...Config) error {
-	opt, err := c.applyConfigs(configs...)
+	opt, err := c.applyConfigs(nil, configs...)
 	if err != nil {
 		return err
 	}
@@ -746,7 +876,7 @@ func (c *rpcShiroClient) Seed(version string, configs ...Config) error {
 
 // ShiroPhylum implements the ShiroClient interface.
 func (c *rpcShiroClient) ShiroPhylum(configs ...Config) (string, error) {
-	opt, err := c.applyConfigs(configs...)
+	opt, err := c.applyConfigs(nil, configs...)
 	if err != nil {
 		return "", err
 	}
@@ -782,7 +912,7 @@ func (c *rpcShiroClient) ShiroPhylum(configs ...Config) (string, error) {
 
 // Init implements the ShiroClient interface.
 func (c *rpcShiroClient) Init(phylum string, configs ...Config) error {
-	opt, err := c.applyConfigs(configs...)
+	opt, err := c.applyConfigs(nil, configs...)
 	if err != nil {
 		return err
 	}
@@ -815,7 +945,7 @@ func (c *rpcShiroClient) Init(phylum string, configs ...Config) error {
 
 // Call implements the ShiroClient interface.
 func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Config) (ShiroResponse, error) {
-	opt, err := c.applyConfigs(configs...)
+	opt, err := c.applyConfigs(nil, configs...)
 	if err != nil {
 		return nil, err
 	}
@@ -912,7 +1042,7 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Con
 
 // QueryInfo implements the ShiroClient interface.
 func (c *rpcShiroClient) QueryInfo(configs ...Config) (uint64, error) {
-	opt, err := c.applyConfigs(configs...)
+	opt, err := c.applyConfigs(nil, configs...)
 	if err != nil {
 		return 0, err
 	}
@@ -948,7 +1078,7 @@ func (c *rpcShiroClient) QueryInfo(configs ...Config) (uint64, error) {
 
 // QueryBlock implements the ShiroClient interface.
 func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Block, error) {
-	opt, err := c.applyConfigs(configs...)
+	opt, err := c.applyConfigs(nil, configs...)
 	if err != nil {
 		return nil, err
 	}
