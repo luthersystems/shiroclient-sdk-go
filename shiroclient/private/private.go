@@ -1,17 +1,14 @@
 package private
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 
-	//lint:ignore SA1019 we are not ready to upgrade proto lib yet
-	"github.com/golang/protobuf/jsonpb"
-	//lint:ignore SA1019 we are not ready to upgrade proto lib yet
-	"github.com/golang/protobuf/proto"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -263,7 +260,7 @@ func Decode(ctx context.Context, client shiroclient.ShiroClient, encoded *Encode
 		}
 		message, ok := decoded.(proto.Message)
 		if ok {
-			return jsonpb.Unmarshal(bytes.NewReader(rawBytes), message)
+			return protojson.Unmarshal(rawBytes, message)
 		}
 		return json.Unmarshal(rawBytes, decoded)
 	}
