@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -567,13 +568,24 @@ func (e *scError) Error() string {
 	return e.message
 }
 
+// timeoutStrings is a workaround to flag certain error messages as timeouts
+// even when the error type does not detect it as a timeout. This is a
+// workaround for some errors which cannot be appropriately flagged as timeouts
+// within the fabric go SDK.
+var timeoutStrings = regexp.MustCompile(`no ledger context`)
+
 // IsTimeoutError inspects an error returned from shiroclient and returns true
 // if it's a timeout.
 func IsTimeoutError(err error) bool {
+	if timeoutStrings.MatchString(err.Error()) {
+		return true
+	}
+
 	se, ok := err.(*scError)
 	if !ok {
 		return false
 	}
+
 	return se.code == ErrorCodeShiroClientTimeout
 }
 

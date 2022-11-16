@@ -108,3 +108,16 @@ func TestSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, storedVal, val)
 }
+
+func TestIsTimeoutError(t *testing.T) {
+	var tests = []struct {
+		msg string
+		exp bool
+	}{
+		{"build/shirocore.lisp:730: lisp:error: GET_STATE failed: transaction ID: 2f82a776d9fdf67dca4caeef9d6b71bb1309d777c43bd45d091ab84587bfb9c6: no ledger context", true},
+		{"transaction invalidated by the chaincode", false},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.exp, shiroclient.IsTimeoutError(errors.New(tt.msg)))
+	}
+}
