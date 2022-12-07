@@ -7,8 +7,6 @@ import (
 	"fmt"
 
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -258,11 +256,7 @@ func Decode(ctx context.Context, client shiroclient.ShiroClient, encoded *Encode
 		if err != nil {
 			return err
 		}
-		message, ok := decoded.(proto.Message)
-		if ok {
-			return protojson.Unmarshal(rawBytes, message)
-		}
-		return json.Unmarshal(rawBytes, decoded)
+		return shiroclient.UnmarshalProto(rawBytes, decoded)
 	}
 	configs = append(configs, WithParam(encoded.encodedMessage))
 	resp, err := client.Call(ctx, ShiroEndpointDecode, configs...)
