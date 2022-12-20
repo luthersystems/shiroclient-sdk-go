@@ -343,6 +343,19 @@ func ProfileToDSID(ctx context.Context, client shiroclient.ShiroClient, profile 
 	return gotDSID, nil
 }
 
+// CallResult is returned from wrapped calls and contains additional data
+// relating to the response.
+type CallResult struct {
+	TransactionID string
+}
+
+// CallFunc is the function signature returned for wrapped calls
+type CallFunc func(
+	ctx context.Context,
+	message interface{},
+	output interface{},
+	configs ...shiroclient.Config) (*CallResult, error)
+
 // WrapCall wraps a shiro call. If the transaction logic encrypts new data
 // then IVs must be specified, via the `WithTransientIVs` function.
 // The configs passed to this are passed to the wrapped call, and not the
@@ -352,11 +365,11 @@ func ProfileToDSID(ctx context.Context, client shiroclient.ShiroClient, profile 
 // favor of the `message`.
 // IMPORTANT: The wrapper assumes the wrapped endpoint only takes a single
 // argument!
-func WrapCall(ctx context.Context, client shiroclient.ShiroClient, method string, encTransforms ...*Transform) func(message interface{}, output interface{}, configs ...shiroclient.Config) error {
-	return func(message interface{}, output interface{}, configs ...shiroclient.Config) error {
+func WrapCall(client shiroclient.ShiroClient, method string, encTransforms ...*Transform) CallFunc {
+	return func(ctx context.Context, message interface{}, output interface{}, configs ...shiroclient.Config) (*CallResult, error) {
 		encodingResponse, err := Encode(ctx, client, message, encTransforms, configs...)
 		if err != nil {
-			return fmt.Errorf("wrap encode error: %s", err)
+			return nil, fmt.Errorf("wrap encode error: %s", err)
 		}
 		if encodingResponse != nil {
 			// IMPORTANT: make sure we override existing params
@@ -367,23 +380,25 @@ func WrapCall(ctx context.Context, client shiroclient.ShiroClient, method string
 		}
 		resp, err := client.Call(ctx, method, configs...)
 		if err != nil {
-			return fmt.Errorf("wrap call error: %s", err)
+			return nil, fmt.Errorf("wrap call error: %s", err)
 		}
 		if resp.Error() != nil {
-			return fmt.Errorf("wrap call response error: %s", resp.Error().Message())
+			return nil, fmt.Errorf("wrap call response error: %s", resp.Error().Message())
 		}
 		encResp := &EncodedResponse{}
 		err = resp.UnmarshalTo(encResp)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if resp.TransactionID() != "" {
 			configs = append(configs, shiroclient.WithDependentTxID(resp.TransactionID()))
 		}
 		err = Decode(ctx, client, encResp, output, configs...)
 		if err != nil {
-			return fmt.Errorf("wrap decode error: %s", err)
+			return nil, fmt.Errorf("wrap decode error: %s", err)
 		}
-		return nil
+		return &CallResult{
+			TransactionID: resp.TransactionID(),
+		}, nil
 	}
 }
