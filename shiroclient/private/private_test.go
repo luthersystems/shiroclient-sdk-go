@@ -23,21 +23,17 @@ func newMockClient(conn substratecommon.Substrate) (shiroclient.MockShiroClient,
 	if err != nil {
 		return nil, err
 	}
-
 	version, err := client.ShiroPhylum()
 	if err != nil {
 		return nil, err
 	}
-
 	if version != "test" {
 		return nil, fmt.Errorf("expected version 'test'")
 	}
-
 	err = client.Init(shiroclient.EncodePhylumBytes(testPhylum))
 	if err != nil {
 		return nil, err
 	}
-
 	return client, nil
 }
 
@@ -50,35 +46,23 @@ func TestPrivate(t *testing.T) {
 			Name: "export missing",
 			Func: func(t *testing.T, client shiroclient.ShiroClient) {
 				data, err := private.Export(context.Background(), client, "DSID-missing")
-				if err != nil {
-					// NOTE: in future versions this will return an error
-					t.Fatalf("unexpected error: %s", err)
-				}
-				if len(data) != 0 {
-					t.Fatalf("expected empty data")
-				}
+				require.NoError(t, err)
+				require.Empty(t, data)
 			},
 		},
 		{
 			Name: "purge missing",
 			Func: func(t *testing.T, client shiroclient.ShiroClient) {
 				err := private.Purge(context.Background(), client, "DSID-missing")
-				if err == nil {
-					t.Fatal("expected error")
-				}
+				require.Error(t, err)
 			},
 		},
 		{
 			Name: "profile to missing DSID",
 			Func: func(t *testing.T, client shiroclient.ShiroClient) {
 				dsid, err := private.ProfileToDSID(context.Background(), client, []string{"profile-missing"})
-				if err != nil {
-					// NOTE: this will return an error in future substrate versions
-					t.Fatalf("unexpected error: %s", err)
-				}
-				if dsid != "" {
-					t.Fatal("expected missing DSID")
-				}
+				require.NoError(t, err)
+				require.Empty(t, dsid)
 			},
 		},
 		{
@@ -93,9 +77,7 @@ func TestPrivate(t *testing.T) {
 				}
 				var transforms []*private.Transform
 				_, err := private.Encode(context.Background(), client, message, transforms)
-				if err != nil {
-					t.Fatalf("unexpected error: %s", err)
-				}
+				require.NoError(t, err)
 			},
 		},
 		{
@@ -110,20 +92,14 @@ func TestPrivate(t *testing.T) {
 				}
 				var transforms []*private.Transform
 				resp, err := private.Encode(context.Background(), client, message, transforms)
-				if err != nil {
-					t.Fatalf("encode: %s", err)
-				}
+				require.NoError(t, err)
 				decodedMessage := struct {
 					Hello string `json:"hello"`
 					Fnord string `json:"fnord"`
 				}{}
 				err = private.Decode(context.Background(), client, resp, &decodedMessage)
-				if err != nil {
-					t.Fatalf("decode: %s", err)
-				}
-				if message != decodedMessage {
-					t.Fatalf("message mismatch, expected: %v != got: %v", message, decodedMessage)
-				}
+				require.NoError(t, err)
+				require.Equal(t, decodedMessage, message)
 			},
 		},
 		{
@@ -147,20 +123,14 @@ func TestPrivate(t *testing.T) {
 					},
 				})
 				resp, err := private.Encode(context.Background(), client, message, transforms)
-				if err != nil {
-					t.Fatalf("encode: %s", err)
-				}
+				require.NoError(t, err)
 				decodedMessage := struct {
 					Hello string `json:"hello"`
 					Fnord string `json:"fnord"`
 				}{}
 				err = private.Decode(context.Background(), client, resp, &decodedMessage)
-				if err != nil {
-					t.Fatalf("decode: %s", err)
-				}
-				if message != decodedMessage {
-					t.Fatalf("message mismatch")
-				}
+				require.NoError(t, err)
+				require.Equal(t, decodedMessage, message)
 			},
 		},
 		{
@@ -183,22 +153,17 @@ func TestPrivate(t *testing.T) {
 						Compressor:   private.CompressorZlib,
 					},
 				})
-				wrap := private.WrapCall(context.Background(), client, "wrap_all", transforms...)
+				wrap := private.WrapCall(client, "wrap_all", transforms...)
 				decodedMessage := struct {
 					Hello string `json:"hello"`
 					Fnord string `json:"fnord"`
 				}{}
 				config, err := private.WithSeed()
-				if err != nil {
-					t.Fatalf("iv: %s", err)
-				}
-				err = wrap(message, &decodedMessage, config)
-				if err != nil {
-					t.Fatalf("wrap: %s", err)
-				}
-				if message != decodedMessage {
-					t.Fatalf("message mismatch: expected: %v != got: %v", message, decodedMessage)
-				}
+				require.NoError(t, err)
+				cr, err := wrap(context.Background(), message, &decodedMessage, config)
+				require.NoError(t, err)
+				require.NotEmpty(t, cr.TransactionID)
+				require.Equal(t, decodedMessage, message)
 			},
 		},
 		{
@@ -212,18 +177,14 @@ func TestPrivate(t *testing.T) {
 					"fnord",
 				}
 				var transforms []*private.Transform
-				wrap := private.WrapCall(context.Background(), client, "wrap_none", transforms...)
+				wrap := private.WrapCall(client, "wrap_none", transforms...)
 				decodedMessage := struct {
 					Hello string `json:"hello"`
 					Fnord string `json:"fnord"`
 				}{}
-				err := wrap(message, &decodedMessage)
-				if err != nil {
-					t.Fatalf("wrap: %s", err)
-				}
-				if message != decodedMessage {
-					t.Fatalf("message mismatch: expected: %v != got: %v", message, decodedMessage)
-				}
+				_, err := wrap(context.Background(), message, &decodedMessage)
+				require.NoError(t, err)
+				require.Equal(t, decodedMessage, message)
 			},
 		},
 		{
@@ -238,18 +199,14 @@ func TestPrivate(t *testing.T) {
 					"fnord",
 				}
 				var transforms []*private.Transform
-				wrap := private.WrapCall(context.Background(), client, "wrap_output", transforms...)
+				wrap := private.WrapCall(client, "wrap_output", transforms...)
 				decodedMessage := struct {
 					Hello string `json:"hello"`
 					Fnord string `json:"fnord"`
 				}{}
-				err := wrap(message, &decodedMessage)
-				if err != nil {
-					t.Fatalf("wrap: %s", err)
-				}
-				if message != decodedMessage {
-					t.Fatalf("message mismatch: expected: %v != got: %v", message, decodedMessage)
-				}
+				_, err := wrap(context.Background(), message, &decodedMessage)
+				require.NoError(t, err)
+				require.Equal(t, decodedMessage, message)
 			},
 		},
 		{
@@ -272,18 +229,14 @@ func TestPrivate(t *testing.T) {
 						Compressor:   private.CompressorZlib,
 					},
 				})
-				wrap := private.WrapCall(context.Background(), client, "wrap_input", transforms...)
+				wrap := private.WrapCall(client, "wrap_input", transforms...)
 				decodedMessage := struct {
 					Hello string `json:"hello"`
 					Fnord string `json:"fnord"`
 				}{}
-				err := wrap(message, &decodedMessage)
-				if err != nil {
-					t.Fatalf("wrap: %s", err)
-				}
-				if message != decodedMessage {
-					t.Fatalf("message mismatch: expected: %v != got: %v", message, decodedMessage)
-				}
+				_, err := wrap(context.Background(), message, &decodedMessage)
+				require.NoError(t, err)
+				require.Equal(t, decodedMessage, message)
 			},
 		},
 		{
@@ -306,15 +259,13 @@ func TestPrivate(t *testing.T) {
 						Compressor:   private.CompressorZlib,
 					},
 				})
-				wrap := private.WrapCall(context.Background(), client, "wrap_all", transforms...)
+				wrap := private.WrapCall(client, "wrap_all", transforms...)
 				decodedMessage := struct {
 					Hello string `json:"hello"`
 					Fnord string `json:"fnord"`
 				}{}
-				err := wrap(message, &decodedMessage)
-				if err == nil {
-					t.Fatalf("expected IV error")
-				}
+				_, err := wrap(context.Background(), message, &decodedMessage)
+				require.Error(t, err)
 			},
 		},
 		{
@@ -324,36 +275,18 @@ func TestPrivate(t *testing.T) {
 			Func: func(t *testing.T, client shiroclient.ShiroClient) {
 				ctx := context.Background()
 				dsid, err := private.ProfileToDSID(ctx, client, []string{"fnord"})
-				if err != nil {
-					t.Fatalf("unexpected profile error: %s", err)
-				}
-
+				require.NoError(t, err)
 				exportedData, err := private.Export(ctx, client, dsid)
-				if err != nil {
-					t.Fatalf("unexpected export error: %s", err)
-				}
-
+				require.NoError(t, err)
 				prettyData, err := json.Marshal(exportedData)
-				if err != nil {
-					t.Fatalf("unexpected unmarshal error: %s", err)
-				}
-
-				if string(prettyData) != `{"test-key":{"fnord":"fnord","hello":"world"}}` {
-					t.Fatalf("unexpected data: %s", string(prettyData))
-				}
-
+				require.NoError(t, err)
+				expected := `{"test-key":{"fnord":"fnord","hello":"world"}}`
+				require.Equal(t, expected, string(prettyData))
 				err = private.Purge(ctx, client, dsid)
-				if err != nil {
-					t.Fatalf("unexpected purge: error %s", err)
-				}
-
+				require.NoError(t, err)
 				dsid, err = private.ProfileToDSID(ctx, client, []string{"fnord"})
-				if err != nil {
-					t.Fatalf("unexpected profile error: %s", err)
-				}
-				if dsid != "" {
-					t.Fatalf("expected empty DSID")
-				}
+				require.NoError(t, err)
+				require.Empty(t, dsid)
 			},
 		},
 		{
@@ -361,23 +294,17 @@ func TestPrivate(t *testing.T) {
 			Name: "wrap no-op",
 			Func: func(t *testing.T, client shiroclient.ShiroClient) {
 				var transforms []*private.Transform
-				wrap := private.WrapCall(context.Background(), client, "nop", transforms...)
+				wrap := private.WrapCall(client, "nop", transforms...)
 				decodedMessage := struct{}{}
-				err := wrap(nil, &decodedMessage)
-				if err != nil {
-					t.Fatalf("wrap: %s", err)
-				}
-				if struct{}{} != decodedMessage {
-					t.Fatalf("message mismatch: expected: %v != got: %v", nil, decodedMessage)
-				}
+				_, err := wrap(context.Background(), nil, &decodedMessage)
+				require.NoError(t, err)
+				require.Equal(t, struct{}{}, decodedMessage)
 			},
 		},
 	}
 	err := substratecommon.Connect((func(conn substratecommon.Substrate) error {
 		client, err := newMockClient(conn)
-		if err != nil {
-			t.Fatalf("mock client: %s", err)
-		}
+		require.NoError(t, err)
 		defer func() {
 			err := client.Close()
 			require.NoError(t, err)
