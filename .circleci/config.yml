@@ -1,9 +1,0 @@
-version: 2
-jobs:
-  build:
-    docker:
-      - image: luthersystems/build-go:0.0.51
-    steps:
-      - checkout
-      - run: echo $LUTHER_LICENSE | base64 -d > .luther-license.yaml
-      - run: make citest

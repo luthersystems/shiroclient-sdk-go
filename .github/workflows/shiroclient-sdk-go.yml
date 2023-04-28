@@ -1,0 +1,18 @@
+name: CI Tests
+on:
+  pull_request:
+    branches:
+    - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: luthersystems/build-go:0.0.51
+    steps:
+    - uses: actions/checkout@v3.5.0
+    - name: Set license file
+      run: echo $LUTHER_LICENSE | base64 -d > .luther-license.yaml
+      env:
+        LUTHER_LICENSE: ${{ secrets.LUTHER_LICENSE }}
+    - name: Run CI tests
+      run: make citest
