@@ -1,0 +1,16 @@
+name: luthersystems/shiroclient-sdk-go/luthersystems/shiroclient-sdk-go
+on:
+  push:
+    branches:
+    - main
+env:
+  LUTHER_LICENSE: xxxxTT0K
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: luthersystems/build-go:0.0.51
+    steps:
+    - uses: actions/checkout@v3.5.0
+    - run: echo $LUTHER_LICENSE | base64 -d > .luther-license.yaml
+    - run: make citest
