@@ -126,9 +126,6 @@ type EncodedResponse struct {
 	// RawMessage is only set to the raw response if encode did not actually
 	// perform any encoding.
 	rawMessage *json.RawMessage
-	// encodeTransactionID (optional) specifies the Tx ID of the Encode call so
-	// that further transactions can set a dependency on it.
-	encodeTransactionID string
 }
 
 // MarshalJSON implements json.Marshaler.
