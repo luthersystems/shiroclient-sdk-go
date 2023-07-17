@@ -394,6 +394,9 @@ type CallFunc func(
 
 var skipEncodeRequest = &EncodedResponse{
 	encodedMessage: &EncodedMessage{
+		// mxf version "transient" is a special constant used to indicate that
+		// the encoded message can be found in instead in the transient data
+		// `mxf` field.
 		MXF: "transient",
 	},
 }
