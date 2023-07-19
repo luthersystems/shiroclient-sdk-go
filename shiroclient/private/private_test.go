@@ -167,6 +167,42 @@ func TestPrivate(t *testing.T) {
 			},
 		},
 		{
+			Name: "wrap (skip encode)",
+			Func: func(t *testing.T, client shiroclient.ShiroClient) {
+				message := struct {
+					Hello string `json:"hello"`
+					Fnord string `json:"fnord"`
+				}{
+					"world",
+					"fnord",
+				}
+				var transforms []*private.Transform
+				transforms = append(transforms, &private.Transform{
+					ContextPath: ".",
+					Header: &private.TransformHeader{
+						ProfilePaths: []string{".fnord"},
+						PrivatePaths: []string{"."},
+						Encryptor:    private.EncryptorAES256,
+						Compressor:   private.CompressorZlib,
+					},
+				})
+				wrap := private.WrapCall(client, "wrap_all", transforms...)
+				decodedMessage := struct {
+					Hello string `json:"hello"`
+					Fnord string `json:"fnord"`
+				}{}
+				var configs []shiroclient.Config
+				config, err := private.WithSeed()
+				configs = append(configs, config)
+				configs = append(configs, private.WithSkipEncodeTx())
+				require.NoError(t, err)
+				cr, err := wrap(context.Background(), message, &decodedMessage, configs...)
+				require.NoError(t, err)
+				require.NotEmpty(t, cr.TransactionID)
+				require.Equal(t, decodedMessage, message)
+			},
+		},
+		{
 			Name: "no wrap (encode/decode passthrough)",
 			Func: func(t *testing.T, client shiroclient.ShiroClient) {
 				message := struct {
@@ -183,6 +219,29 @@ func TestPrivate(t *testing.T) {
 					Fnord string `json:"fnord"`
 				}{}
 				_, err := wrap(context.Background(), message, &decodedMessage)
+				require.NoError(t, err)
+				require.Equal(t, decodedMessage, message)
+			},
+		},
+		{
+			Name: "no wrap (encode/decode passthrough, skip encode)",
+			Func: func(t *testing.T, client shiroclient.ShiroClient) {
+				message := struct {
+					Hello string `json:"hello"`
+					Fnord string `json:"fnord"`
+				}{
+					"world",
+					"fnord",
+				}
+				var transforms []*private.Transform
+				wrap := private.WrapCall(client, "wrap_none", transforms...)
+				decodedMessage := struct {
+					Hello string `json:"hello"`
+					Fnord string `json:"fnord"`
+				}{}
+				var configs []shiroclient.Config
+				configs = append(configs, private.WithSkipEncodeTx())
+				_, err := wrap(context.Background(), message, &decodedMessage, configs...)
 				require.NoError(t, err)
 				require.Equal(t, decodedMessage, message)
 			},
