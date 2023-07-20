@@ -241,6 +241,8 @@ func encodeHelper(ctx context.Context, client shiroclient.ShiroClient, message i
 	enc := &EncodedResponse{}
 	if doSkipEncodeTx(configs) {
 		newConfigs = append(newConfigs, transientConfigs...)
+		// for this optimization, pass a hard coded "magic" request that tells
+		// `substrate` to look for the to-be encoded message in transient data.
 		newConfigs = append(newConfigs, WithParam(skipEncodeRequest))
 	} else {
 
@@ -395,7 +397,7 @@ type CallFunc func(
 var skipEncodeRequest = &EncodedResponse{
 	encodedMessage: &EncodedMessage{
 		// mxf version "transient" is a special constant used to indicate that
-		// the encoded message can be found in instead in the transient data
+		// the encoded message can be found instead in the transient data
 		// `mxf` field.
 		MXF: "transient",
 	},
