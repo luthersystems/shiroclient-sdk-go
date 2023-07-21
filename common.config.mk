@@ -12,7 +12,7 @@ PROJECT=shiroclient-sdk-go
 # These variables control the version numbers for parts of the LEIA platform
 # and should be kept up-to-date to leverage the latest platform features.
 # See release notes: https://docs.luthersystems.com/luther/platform/release-notes
-SUBSTRATE_VERSION=2.170.0-fabric2
+SUBSTRATE_VERSION=2.183.0-fabric2
 
 # A golang module proxy server can greatly help speed up docker builds but the
 # official proxy at https://proxy.golang.org only works for public modules.
