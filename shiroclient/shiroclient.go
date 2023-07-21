@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -627,6 +628,60 @@ func (r *rpcres) getShiroClientError() error {
 	}
 }
 
+func (c *rpcShiroClient) doRequest(ctx context.Context, httpReq *http.Request, log *logrus.Logger) ([]byte, error) {
+	type result struct {
+		msg []byte
+		err error
+	}
+	resultCh := make(chan result, 1)
+
+	go func() {
+		httpRes, err := c.httpClient.Do(httpReq.WithContext(ctx))
+
+		defer func() {
+			if httpRes == nil || httpRes.Body == nil {
+				return
+			}
+			// in the happy path we are still copying to discard, after the
+			// ReadAll, but this should be safe, and simplifies the case
+			// logic.
+			_, err := io.Copy(ioutil.Discard, httpRes.Body)
+			if err != nil && log != nil {
+				log.WithError(err).Warn("failed to discard response body")
+			}
+
+			err = httpRes.Body.Close()
+			if err != nil && log != nil {
+				log.WithError(err).Warn("failed to close response body")
+			}
+		}()
+
+		if err != nil {
+			resultCh <- result{nil, err}
+			return
+		}
+
+		msg, err := io.ReadAll(httpRes.Body)
+		resultCh <- result{msg, err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		// The context was canceled or the deadline exceeded, return context error
+		// immediately, and leave the response cleanup to the goroutine.
+		return nil, ctx.Err()
+	case res := <-resultCh:
+		// The HTTP request finished.
+		if res.err != nil {
+			if errors.Is(ctx.Err(), context.Canceled) || errors.Is(res.err, context.Canceled) {
+				return nil, fmt.Errorf("%w: %s", context.Canceled, res.err)
+			}
+			return nil, res.err
+		}
+		return res.msg, nil
+	}
+}
+
 // reqres is a round-trip "request/response" helper. Marshals "req",
 // logs it at debug level, makes the HTTP request, reads and logs the
 // response at debug level, unmarshals, parses into rpcres.
@@ -645,7 +700,7 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *requestOptions) (*rpcres, 
 		ctx = context.Background()
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", opt.endpoint, bytes.NewReader(outmsg))
+	httpReq, err := http.NewRequest("POST", opt.endpoint, bytes.NewReader(outmsg))
 	if err != nil {
 		return nil, err
 	}
@@ -657,21 +712,9 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *requestOptions) (*rpcres, 
 		httpReq.Header.Set("Authorization", "Bearer "+opt.authToken)
 	}
 
-	httpRes, err := c.httpClient.Do(httpReq)
+	msg, err := c.doRequest(ctx, httpReq, opt.log)
 	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		err := httpRes.Body.Close()
-		if err != nil && opt.log != nil {
-			opt.log.WithError(err).Warn("failed to close response body")
-		}
-	}()
-
-	msg, err := io.ReadAll(httpRes.Body)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ShiroClient.reqres: %w", err)
 	}
 
 	var target *interface{}
@@ -818,19 +861,16 @@ func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, con
 	}
 
 	// Do the health check
-	hreq, err := http.NewRequestWithContext(ctx, "GET", checkURL, nil)
+	hreq, err := http.NewRequest("GET", checkURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck request: %w", err)
 	}
-	hresp, err := c.httpClient.Do(hreq)
+
+	body, err := c.doRequest(ctx, hreq, c.defaultLog)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck perform: %w", err)
 	}
-	defer hresp.Body.Close()
-	body, err := io.ReadAll(hresp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("healthcheck read response: %w", err)
-	}
+
 	resp, err := unmarshalHealthResponse(body)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck bad response: %w", err)
