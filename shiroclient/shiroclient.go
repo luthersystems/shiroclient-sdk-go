@@ -11,14 +11,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"time"
 
-	"github.com/golang/protobuf/jsonpb" //lint:ignore SA1019 need for backwards compat
+	//nolint:staticcheck // Deprecated package "github.com/golang/protobuf/jsonpb" used for backwards compatibility
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-hclog"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/mockint"
@@ -416,6 +416,7 @@ func UnmarshalProto(src []byte, dst interface{}) error {
 	case proto.Message:
 		err = protojson.Unmarshal(src, message)
 	case protoiface.MessageV1:
+		//nolint:staticcheck // Deprecated Unmarshal used for backwards compatibility
 		err = jsonpb.Unmarshal(bytes.NewReader(src), message)
 	default:
 		err = json.Unmarshal(src, message)
@@ -645,7 +646,7 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpReq *http.Request, l
 			// in the happy path we are still copying to discard, after the
 			// ReadAll, but this should be safe, and simplifies the case
 			// logic.
-			_, err := io.Copy(ioutil.Discard, httpRes.Body)
+			_, err := io.Copy(io.Discard, httpRes.Body)
 			if err != nil && log != nil {
 				log.WithError(err).Warn("failed to discard response body")
 			}
