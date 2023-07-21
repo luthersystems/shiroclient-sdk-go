@@ -126,9 +126,6 @@ type EncodedResponse struct {
 	// RawMessage is only set to the raw response if encode did not actually
 	// perform any encoding.
 	rawMessage *json.RawMessage
-	// encodeTransactionID (optional) specifies the Tx ID of the Encode call so
-	// that further transactions can set a dependency on it.
-	encodeTransactionID string
 }
 
 // MarshalJSON implements json.Marshaler.
@@ -157,6 +154,24 @@ func (r *EncodedResponse) UnmarshalJSON(b []byte) error {
 		r.encodedMessage = encMsg
 	}
 	return nil
+}
+
+var skipEncodeConfig = shiroclient.WithSingleton()
+
+// WithSkipEncodeTx skips the encode transaction and instead encodes the
+// private data in the same transaction as the wrapped Call transaction. This
+// is an optimization to reduce the number of transactions.
+func WithSkipEncodeTx() shiroclient.Config {
+	return skipEncodeConfig
+}
+
+func doSkipEncodeTx(configs []shiroclient.Config) bool {
+	for _, config := range configs {
+		if config == skipEncodeConfig {
+			return true
+		}
+	}
+	return false
 }
 
 // WithParam returns a shiroclient config that passes a single parameter
@@ -194,49 +209,72 @@ func WithTransientMXF(req *EncodeRequest) ([]shiroclient.Config, error) {
 	return configs, nil
 }
 
-// Encode encodes a sensitive "message" using "transforms".
-// If there no transforms, then encode simply returns a thin wrapper
-// over the encoded message bytes.
-func Encode(ctx context.Context, client shiroclient.ShiroClient, message interface{}, transforms []*Transform, configs ...shiroclient.Config) (*EncodedResponse, error) {
+func encodeHelper(ctx context.Context, client shiroclient.ShiroClient, message interface{}, transforms []*Transform, configs ...shiroclient.Config) (*EncodedResponse, []shiroclient.Config, error) {
 	if message == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
+	var newConfigs []shiroclient.Config
 	if len(transforms) == 0 {
 		// fast path, nothing to do.
 		rawBytes, err := json.Marshal(message)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		encResp := &EncodedResponse{}
 		err = json.Unmarshal(rawBytes, encResp)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return encResp, nil
+
+		newConfigs = append(newConfigs, WithParam(encResp))
+		return encResp, newConfigs, nil
 	}
+
 	transientConfigs, err := WithTransientMXF(&EncodeRequest{
 		Message:    message,
 		Transforms: transforms,
 	})
 	if err != nil {
-		return nil, err
-	}
-	configs = append(configs, transientConfigs...)
-	resp, err := client.Call(ctx, ShiroEndpointEncode, configs...)
-	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if resp.Error() != nil {
-		return nil, fmt.Errorf(resp.Error().Message())
-	}
 	enc := &EncodedResponse{}
-	err = resp.UnmarshalTo(enc)
+	if doSkipEncodeTx(configs) {
+		newConfigs = append(newConfigs, transientConfigs...)
+		// for this optimization, pass a hard coded "magic" request that tells
+		// `substrate` to look for the to-be encoded message in transient data.
+		newConfigs = append(newConfigs, WithParam(skipEncodeRequest))
+	} else {
+
+		configs = append(configs, transientConfigs...)
+
+		resp, err := client.Call(ctx, ShiroEndpointEncode, configs...)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if resp.Error() != nil {
+			return nil, nil, fmt.Errorf(resp.Error().Message())
+		}
+		err = resp.UnmarshalTo(enc)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		newConfigs = append(newConfigs, shiroclient.WithDependentTxID(resp.TransactionID()))
+		newConfigs = append(newConfigs, WithParam(enc))
+	}
+
+	return enc, newConfigs, nil
+}
+
+// Encode encodes a sensitive "message" using "transforms".
+// If there no transforms, then encode simply returns a thin wrapper
+// over the encoded message bytes.
+func Encode(ctx context.Context, client shiroclient.ShiroClient, message interface{}, transforms []*Transform, configs ...shiroclient.Config) (*EncodedResponse, error) {
+	enc, _, err := encodeHelper(ctx, client, message, transforms, configs...)
 	if err != nil {
 		return nil, err
-	}
-	if resp.TransactionID() != "" {
-		enc.encodeTransactionID = resp.TransactionID()
 	}
 	return enc, nil
 }
@@ -356,6 +394,15 @@ type CallFunc func(
 	output interface{},
 	configs ...shiroclient.Config) (*CallResult, error)
 
+var skipEncodeRequest = &EncodedResponse{
+	encodedMessage: &EncodedMessage{
+		// mxf version "transient" is a special constant used to indicate that
+		// the encoded message can be found instead in the transient data
+		// `mxf` field.
+		MXF: "transient",
+	},
+}
+
 // WrapCall wraps a shiro call. If the transaction logic encrypts new data
 // then IVs must be specified, via the `WithTransientIVs` function.
 // The configs passed to this are passed to the wrapped call, and not the
@@ -367,20 +414,14 @@ type CallFunc func(
 // argument!
 func WrapCall(client shiroclient.ShiroClient, method string, encTransforms ...*Transform) CallFunc {
 	return func(ctx context.Context, message interface{}, output interface{}, configs ...shiroclient.Config) (*CallResult, error) {
-		encodingResponse, err := Encode(ctx, client, message, encTransforms, configs...)
+		_, newConfigs, err := encodeHelper(ctx, client, message, encTransforms, configs...)
 		if err != nil {
-			return nil, fmt.Errorf("wrap encode error: %s", err)
+			return nil, fmt.Errorf("wrap encode error: %w", err)
 		}
-		if encodingResponse != nil {
-			// IMPORTANT: make sure we override existing params
-			configs = append(configs, WithParam(encodingResponse))
-			if encodingResponse.encodeTransactionID != "" {
-				configs = append(configs, shiroclient.WithDependentTxID(encodingResponse.encodeTransactionID))
-			}
-		}
-		resp, err := client.Call(ctx, method, configs...)
+		callConfigs := append(configs, newConfigs...)
+		resp, err := client.Call(ctx, method, callConfigs...)
 		if err != nil {
-			return nil, fmt.Errorf("wrap call error: %s", err)
+			return nil, fmt.Errorf("wrap call error: %w", err)
 		}
 		if resp.Error() != nil {
 			return nil, fmt.Errorf("wrap call response error: %s", resp.Error().Message())
@@ -395,7 +436,7 @@ func WrapCall(client shiroclient.ShiroClient, method string, encTransforms ...*T
 		}
 		err = Decode(ctx, client, encResp, output, configs...)
 		if err != nil {
-			return nil, fmt.Errorf("wrap decode error: %s", err)
+			return nil, fmt.Errorf("wrap decode error: %w", err)
 		}
 		return &CallResult{
 			TransactionID: resp.TransactionID(),

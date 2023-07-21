@@ -55,100 +55,114 @@ type requestOptions struct {
 
 // Config is a type for a function that can mutate a requestOptions
 // object.
-type Config func(*requestOptions)
+type Config interface {
+	Fn(*requestOptions)
+}
+
+type standardConfig struct {
+	fn func(*requestOptions)
+}
+
+func (s *standardConfig) Fn(r *requestOptions) {
+	s.fn(r)
+}
+
+func opt(fn func(r *requestOptions)) Config {
+	return &standardConfig{fn}
+}
 
 // WithContext allows specifying the context to use.
 func WithContext(ctx context.Context) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.ctx = ctx
-	}
+	})
 }
 
 // WithLog allows specifying the logger to use.
 func WithLog(log *logrus.Logger) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.log = log
-	}
+	})
 }
 
 // WithLogField allows specifying a log field to be included.
 func WithLogField(key string, value interface{}) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.logFields[key] = value
-	}
+	})
 }
 
 // WithLogrusFields allows specifying multiple log fields to be
 // included.
 func WithLogrusFields(fields logrus.Fields) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		for k, v := range fields {
 			r.logFields[k] = v
 		}
-	}
+	})
 }
 
 // WithHeader allows specifying an additional HTTP header.
 func WithHeader(key string, value string) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.headers[key] = value
-	}
+	})
 }
 
 // WithEndpoint allows specifying the endpoint to target. The RPC
 // implementation will not work if an endpoint is not specified.
 func WithEndpoint(endpoint string) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.endpoint = endpoint
-	}
+	})
 }
 
 // WithID allows specifying the request ID. If the request ID is not
 // specified, a randomly-generated UUID will be used.
 func WithID(id string) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.id = id
-	}
+	})
 }
 
 // WithParams allows specifying the phylum "parameters" argument. This
 // must be set to something that json.Marshal accepts.
 func WithParams(params interface{}) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.params = params
-	}
+	})
 }
 
 // WithTransientData allows specifying a single "transient data"
 // key-value pair.
 func WithTransientData(key string, val []byte) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.transient[key] = val
-	}
+	})
 }
 
 // WithTransientDataMap allows specifying multiple "transient data"
 // key-value pairs.
 func WithTransientDataMap(data map[string][]byte) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		for key, val := range data {
 			r.transient[key] = val
 		}
-	}
+	})
 }
 
 // WithResponse allows capturing the RPC response for futher analysis.
 func WithResponse(target *interface{}) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.target = target
-	}
+	})
 }
 
 // WithAuthToken passes authorization for the transaction issuer with a request
 func WithAuthToken(token string) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.authToken = token
-	}
+	})
 }
 
 // WithTimestampGenerator allows specifying a function that will be
@@ -156,24 +170,23 @@ func WithAuthToken(token string) Config {
 // substrate "now" timestamp in mock mode. Has no effect outside of
 // mock mode.
 func WithTimestampGenerator(timestampGenerator func(context.Context) string) Config {
-	return func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.timestampGenerator = timestampGenerator
-	}
+	})
 }
 
 // WithMSPFilter allows specifying the MSP filter. Has no effect in
 // mock mode.
 func WithMSPFilter(mspFilter []string) Config {
-	clonedMSPFilter := append([]string(nil), mspFilter...)
-	return (func(r *requestOptions) {
-		r.mspFilter = clonedMSPFilter
+	return opt(func(r *requestOptions) {
+		r.mspFilter = append([]string(nil), mspFilter...)
 	})
 }
 
 // WithMinEndorsers allows specifying the minimum number of endorsing
 // peers. Has no effect in mock mode.
 func WithMinEndorsers(minEndorsers int) Config {
-	return (func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.minEndorsers = minEndorsers
 	})
 }
@@ -181,7 +194,7 @@ func WithMinEndorsers(minEndorsers int) Config {
 // WithCreator allows specifying the creator. Only has effect in mock
 // mode. Also works in gateway mock mode.
 func WithCreator(creator string) Config {
-	return (func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.creator = creator
 	})
 }
@@ -190,7 +203,7 @@ func WithCreator(creator string) Config {
 // set, the client will poll for the presence of that transaction before
 // simulating the request on the peer with the transaction.
 func WithDependentTxID(txID string) Config {
-	return (func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.dependentTxID = txID
 	})
 }
@@ -198,7 +211,7 @@ func WithDependentTxID(txID string) Config {
 // WithDisableWritePolling allows disabling polling for full consensus after a
 // write is committed.
 func WithDisableWritePolling(disable bool) Config {
-	return (func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.disableWritePolling = disable
 	})
 }
@@ -206,14 +219,14 @@ func WithDisableWritePolling(disable bool) Config {
 // WithCCFetchURLDowngrade allows controlling https -> http downgrade,
 // typically useful before proxying for ccfetchurl library.
 func WithCCFetchURLDowngrade(downgrade bool) Config {
-	return (func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.ccFetchURLDowngrade = downgrade
 	})
 }
 
 // WithCCFetchURLProxy sets the proxy for ccfetchurl library.
 func WithCCFetchURLProxy(proxy *url.URL) Config {
-	return (func(r *requestOptions) {
+	return opt(func(r *requestOptions) {
 		r.ccFetchURLProxy = proxy
 	})
 }
@@ -240,6 +253,12 @@ func ProbeForNew(configs []Config) (bool, *url.URL, error) {
 		return false, nil, err
 	}
 	return ro.ccFetchURLDowngrade, ro.ccFetchURLProxy, nil
+}
+
+// WithSingleton creates a config that does not do anything. This is useful
+// for creating singleton configs in other packages (such as private).
+func WithSingleton() Config {
+	return opt(func(r *requestOptions) {})
 }
 
 // ShiroClient is an abstraction for a connection to a
@@ -754,11 +773,11 @@ func (c *rpcShiroClient) applyConfigs(ctx context.Context, configs ...Config) (*
 	opt := &requestOptions{
 		log:                 c.defaultLog,
 		logFields:           make(logrus.Fields),
-		headers:             map[string]string{},
+		headers:             make(map[string]string),
 		endpoint:            "",
 		id:                  uuid.String(),
 		params:              nil,
-		transient:           map[string][]byte{},
+		transient:           make(map[string][]byte),
 		target:              nil,
 		timestampGenerator:  nil,
 		mspFilter:           nil,
@@ -770,11 +789,11 @@ func (c *rpcShiroClient) applyConfigs(ctx context.Context, configs ...Config) (*
 	}
 
 	for _, config := range c.baseConfig {
-		config(opt)
+		config.Fn(opt)
 	}
 
 	for _, config := range configs {
-		config(opt)
+		config.Fn(opt)
 	}
 
 	return opt, nil
@@ -1280,11 +1299,11 @@ func (c *mockShiroClient) flatten(configs ...Config) (*substratecommon.ConcreteR
 	}
 
 	for _, config := range c.baseConfig {
-		config(opt)
+		config.Fn(opt)
 	}
 
 	for _, config := range configs {
-		config(opt)
+		config.Fn(opt)
 	}
 
 	params, err := json.Marshal(opt.params)
