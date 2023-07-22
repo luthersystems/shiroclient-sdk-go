@@ -638,32 +638,41 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpReq *http.Request, l
 
 	go func() {
 		httpRes, err := c.httpClient.Do(httpReq.WithContext(ctx))
-
-		defer func() {
-			if httpRes == nil || httpRes.Body == nil {
-				return
-			}
-			// in the happy path we are still copying to discard, after the
-			// ReadAll, but this should be safe, and simplifies the case
-			// logic.
-			_, err := io.Copy(io.Discard, httpRes.Body)
-			if err != nil && log != nil {
-				log.WithError(err).Warn("failed to discard response body")
-			}
-
-			err = httpRes.Body.Close()
-			if err != nil && log != nil {
-				log.WithError(err).Warn("failed to close response body")
-			}
-		}()
-
 		if err != nil {
+			// just abort here, as the response.Body will already be closed
+			// and you cannot drain a closed buffer.
+			// from: https://cs.opensource.google/go/go/+/refs/tags/go1.20.6:src/net/http/client.go;l=581
+			// On error, any Response can be ignored. A non-nil Response with a
+			// non-nil error only occurs when CheckRedirect fails, and even then
+			// the returned Response.Body is already closed.
 			resultCh <- result{nil, err}
 			return
 		}
 
-		msg, err := io.ReadAll(httpRes.Body)
-		resultCh <- result{msg, err}
+		msg, readErr := io.ReadAll(httpRes.Body)
+		if readErr != nil {
+			if log != nil {
+				log.WithError(readErr).Warn("failed to read response body")
+			}
+			err = readErr
+		}
+
+		closeErr := httpRes.Body.Close()
+		if closeErr != nil {
+			if log != nil {
+				log.WithError(closeErr).Warn("failed to close response body")
+			}
+			if err == nil {
+				// keep the first error
+				err = closeErr
+			}
+		}
+
+		if err != nil {
+			resultCh <- result{nil, err}
+		} else {
+			resultCh <- result{msg, nil}
+		}
 	}()
 
 	select {
