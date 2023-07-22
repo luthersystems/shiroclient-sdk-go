@@ -681,12 +681,21 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpReq *http.Request, l
 		// immediately, and leave the response cleanup to the goroutine.
 		return nil, ctx.Err()
 	case res := <-resultCh:
+		err := res.err
 		// The HTTP request finished.
 		if res.err != nil {
-			if errors.Is(ctx.Err(), context.Canceled) || errors.Is(res.err, context.Canceled) {
-				return nil, fmt.Errorf("%w: %s", context.Canceled, res.err)
+			if errors.Is(err, context.Canceled) {
+				return nil, err
 			}
-			return nil, res.err
+			// although unlikely, it's technically possible for the
+			// resultChannel to return an error (e.g. EOF) due to the
+			// cancelation, before the ctx.Done channel message is triggered.
+			// Here, we wrap the non-canceled error as a canceled error, so
+			// the application can properly handle it.
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, fmt.Errorf("%w: %s", context.Canceled, err)
+			}
+			return nil, err
 		}
 		return res.msg, nil
 	}
