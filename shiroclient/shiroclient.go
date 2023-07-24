@@ -683,7 +683,7 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpReq *http.Request, l
 	case res := <-resultCh:
 		err := res.err
 		// The HTTP request finished.
-		if res.err != nil {
+		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return nil, err
 			}
