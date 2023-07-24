@@ -17,7 +17,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/golang/protobuf/jsonpb" //lint:ignore SA1019 need for backwards compat
+	//nolint:staticcheck // Deprecated package "github.com/golang/protobuf/jsonpb" used for backwards compatibility
+	"github.com/golang/protobuf/jsonpb"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-hclog"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/mockint"
@@ -415,6 +416,7 @@ func UnmarshalProto(src []byte, dst interface{}) error {
 	case proto.Message:
 		err = protojson.Unmarshal(src, message)
 	case protoiface.MessageV1:
+		//nolint:staticcheck // Deprecated Unmarshal used for backwards compatibility
 		err = jsonpb.Unmarshal(bytes.NewReader(src), message)
 	default:
 		err = json.Unmarshal(src, message)
@@ -627,6 +629,77 @@ func (r *rpcres) getShiroClientError() error {
 	}
 }
 
+func (c *rpcShiroClient) doRequest(ctx context.Context, httpReq *http.Request, log *logrus.Logger) ([]byte, error) {
+	type result struct {
+		msg []byte
+		err error
+	}
+	resultCh := make(chan result, 1)
+
+	go func() {
+		httpRes, err := c.httpClient.Do(httpReq.WithContext(ctx))
+		if err != nil {
+			// just abort here, as the response.Body will already be closed
+			// and you cannot drain a closed buffer.
+			// from: https://cs.opensource.google/go/go/+/refs/tags/go1.20.6:src/net/http/client.go;l=581
+			// On error, any Response can be ignored. A non-nil Response with a
+			// non-nil error only occurs when CheckRedirect fails, and even then
+			// the returned Response.Body is already closed.
+			resultCh <- result{nil, err}
+			return
+		}
+
+		msg, readErr := io.ReadAll(httpRes.Body)
+		if readErr != nil {
+			if log != nil {
+				log.WithError(readErr).Warn("failed to read response body")
+			}
+			err = readErr
+		}
+
+		closeErr := httpRes.Body.Close()
+		if closeErr != nil {
+			if log != nil {
+				log.WithError(closeErr).Warn("failed to close response body")
+			}
+			if err == nil {
+				err = closeErr
+			}
+		}
+
+		if err != nil {
+			resultCh <- result{nil, err}
+		} else {
+			resultCh <- result{msg, nil}
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		// The context was canceled or the deadline exceeded, return context error
+		// immediately, and leave the response cleanup to the goroutine.
+		return nil, ctx.Err()
+	case res := <-resultCh:
+		err := res.err
+		// The HTTP request finished.
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil, err
+			}
+			// although unlikely, it's technically possible for the
+			// resultChannel to return an error (e.g. EOF) due to the
+			// cancelation, before the ctx.Done channel message is triggered.
+			// Here, we wrap the non-canceled error as a canceled error, so
+			// the application can properly handle it.
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return nil, fmt.Errorf("%w: %s", context.Canceled, err)
+			}
+			return nil, err
+		}
+		return res.msg, nil
+	}
+}
+
 // reqres is a round-trip "request/response" helper. Marshals "req",
 // logs it at debug level, makes the HTTP request, reads and logs the
 // response at debug level, unmarshals, parses into rpcres.
@@ -645,7 +718,7 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *requestOptions) (*rpcres, 
 		ctx = context.Background()
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", opt.endpoint, bytes.NewReader(outmsg))
+	httpReq, err := http.NewRequest("POST", opt.endpoint, bytes.NewReader(outmsg))
 	if err != nil {
 		return nil, err
 	}
@@ -657,21 +730,9 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *requestOptions) (*rpcres, 
 		httpReq.Header.Set("Authorization", "Bearer "+opt.authToken)
 	}
 
-	httpRes, err := c.httpClient.Do(httpReq)
+	msg, err := c.doRequest(ctx, httpReq, opt.log)
 	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		err := httpRes.Body.Close()
-		if err != nil && opt.log != nil {
-			opt.log.WithError(err).Warn("failed to close response body")
-		}
-	}()
-
-	msg, err := io.ReadAll(httpRes.Body)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ShiroClient.reqres: %w", err)
 	}
 
 	var target *interface{}
@@ -818,19 +879,16 @@ func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, con
 	}
 
 	// Do the health check
-	hreq, err := http.NewRequestWithContext(ctx, "GET", checkURL, nil)
+	hreq, err := http.NewRequest("GET", checkURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck request: %w", err)
 	}
-	hresp, err := c.httpClient.Do(hreq)
+
+	body, err := c.doRequest(ctx, hreq, c.defaultLog)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck perform: %w", err)
 	}
-	defer hresp.Body.Close()
-	body, err := io.ReadAll(hresp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("healthcheck read response: %w", err)
-	}
+
 	resp, err := unmarshalHealthResponse(body)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck bad response: %w", err)
