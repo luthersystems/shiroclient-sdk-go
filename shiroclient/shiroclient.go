@@ -663,7 +663,6 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpReq *http.Request, l
 				log.WithError(closeErr).Warn("failed to close response body")
 			}
 			if err == nil {
-				// keep the first error
 				err = closeErr
 			}
 		}
