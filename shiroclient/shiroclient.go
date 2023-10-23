@@ -596,6 +596,12 @@ type rpcres struct {
 type scError struct {
 	message string
 	code    int
+	err     error
+}
+
+// Unwrap implements the Wrapper interface from the errors package.
+func (e *scError) Unwrap() error {
+	return e.err
 }
 
 // Error implements error.
@@ -606,11 +612,11 @@ func (e *scError) Error() string {
 // IsTimeoutError inspects an error returned from shiroclient and returns true
 // if it's a timeout.
 func IsTimeoutError(err error) bool {
-	se, ok := err.(*scError)
-	if !ok {
-		return false
+	var se *scError
+	if errors.As(err, &se) {
+		return se.code == ErrorCodeShiroClientTimeout
 	}
-	return se.code == ErrorCodeShiroClientTimeout
+	return false
 }
 
 // Returns an error object with the same detail message as the
