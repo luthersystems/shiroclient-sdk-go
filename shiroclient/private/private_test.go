@@ -4,12 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/private"
-	"github.com/luthersystems/substratecommon"
 	"github.com/stretchr/testify/require"
 
 	_ "embed"
@@ -18,7 +16,7 @@ import (
 //go:embed private_test.lisp
 var testPhylum []byte
 
-func newMockClient(conn substratecommon.Substrate) (shiroclient.MockShiroClient, error) {
+func newMockClient() (shiroclient.MockShiroClient, error) {
 	client, err := shiroclient.NewMock(nil)
 	if err != nil {
 		return nil, err
@@ -361,22 +359,16 @@ func TestPrivate(t *testing.T) {
 			},
 		},
 	}
-	err := substratecommon.Connect((func(conn substratecommon.Substrate) error {
-		client, err := newMockClient(conn)
+	client, err := newMockClient()
+	require.NoError(t, err)
+	defer func() {
+		err := client.Close()
 		require.NoError(t, err)
-		defer func() {
-			err := client.Close()
-			require.NoError(t, err)
-		}()
-		for _, tc := range tests {
-			t.Run(tc.Name, func(t *testing.T) {
-				tc.Func(t, client)
-			})
-		}
+	}()
 
-		return nil
-	}),
-		substratecommon.ConnectWithCommand(os.Getenv("SUBSTRATEHCP_FILE")),
-		substratecommon.ConnectWithAttachStdamp(os.Stderr))
-	require.Nil(t, err)
+	for _, tc := range tests {
+		t.Run(tc.Name, func(t *testing.T) {
+			tc.Func(t, client)
+		})
+	}
 }
