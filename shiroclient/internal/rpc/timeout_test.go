@@ -1,4 +1,4 @@
-package shiroclient
+package rpc
 
 import (
 	"fmt"

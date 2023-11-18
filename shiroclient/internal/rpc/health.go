@@ -1,10 +1,34 @@
-package shiroclient
+package rpc
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 )
+
+var _ smartHealthCheck = (*rpcShiroClient)(nil)
+
+// smartHealthCheck is an internal interface that is not intended to be used in
+// implementations outside of this package.  The interface is subject to
+// change.
+type smartHealthCheck interface {
+	HealthCheck(ctx context.Context, services []string, configs ...Config) (HealthCheck, error)
+}
+
+type HealthCheck interface {
+	Reports() []HealthCheckReport
+}
+
+type HealthCheckReport interface {
+	// Timestamp of when the report was generated (RFC3339).
+	Timestamp() string
+	// Status of the service.
+	Status() string
+	// Name of the service.
+	ServiceName() string
+	// Version of the service.
+	ServiceVersion() string
+}
 
 type jsonFieldError struct {
 	desc  string
@@ -102,33 +126,28 @@ func convertHealthReport(rawReport interface{}) (*healthreport, error) {
 	return report, nil
 }
 
-// smartHealthCheck is an internal interface that is not intended to be used in
-// implementations outside of this package.  The interface is subject to
-// change.
-type smartHealthCheck interface {
-	HealthCheck(ctx context.Context, services []string, configs ...Config) (HealthCheck, error)
+func rpcError(resp ShiroResponse) error {
+	err := resp.Error()
+	if err != nil {
+		return &_rpcError{err}
+	}
+	return nil
 }
 
-// RemoteHealthCheck checks connectivity between the SDK client (e.g. oracle
-// service) and upstream services including the phylum itself.  If the list of
-// upstream services is empty the behavior of RemoteHealthCheck depends on
-// client's implementation.  Clients created with NewMock do not support
-// upstream service enumeration and will always invoke the mock phylum
-// "healthcheck" endpoint.
-//
-// For clients that support RemoteHealthCheck service enumeration, like those
-// created with NewRPC, services should be specified using canonical names
-//		phylum
-//		shiroclient_gateway
-//		...
-// Unrecognized service names are ignored, though may still be sent to upstream
-// gateways.
-//
-// NOTE:  An RPC gateway must be a recent enough version to support
-// specification of upstream services or it will otherwise fallback to invoking
-// the phylum healthcheck endpoint.
-func RemoteHealthCheck(ctx context.Context, client ShiroClient, services []string, configs ...Config) (HealthCheck, error) {
+type _rpcError struct {
+	err Error
+}
 
+func (e *_rpcError) Error() string {
+	trailer := ""
+	js := e.err.DataJSON()
+	if len(js) > 0 {
+		trailer = fmt.Sprintf(" %s", js)
+	}
+	return fmt.Sprintf("rpc error code %v %s%s", e.err.Code(), e.err.Message(), trailer)
+}
+
+func RemoteHealthCheck(ctx context.Context, client ShiroClient, services []string, configs ...Config) (HealthCheck, error) {
 	switch client := client.(type) {
 	case smartHealthCheck:
 		return client.HealthCheck(ctx, services, configs...)

@@ -1,21 +1,19 @@
 package batch_test
 
 import (
-	"testing"
-
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"sync"
+	"testing"
 	"time"
-
-	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/require"
 
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/batch"
-
-	_ "embed"
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //go:embed batch_test.lisp
@@ -70,17 +68,21 @@ func Test001(t *testing.T) {
 
 	lastReceivedMessage := "none"
 
-	ticker := driver.Register(context.Background(), "test_batch", time.Duration(1)*time.Hour, func(batchID string, requestID string, message json.RawMessage) (json.RawMessage, error) {
-		/****/ if string(message) == "\"ping1\"" {
+	ctx := context.Background()
+
+	ticker := driver.Register(ctx, "test_batch", time.Duration(1)*time.Hour, func(batchID string, requestID string, message json.RawMessage) (json.RawMessage, error) {
+		messageStr := string(message)
+		switch messageStr {
+		case `"ping1"`:
 			lastReceivedMessage = "ping1"
 			return []byte("\"pong1\""), nil
-		} else if string(message) == "\"ping2\"" {
+		case `"ping2"`:
 			lastReceivedMessage = "ping2"
 			return nil, errors.New("ping2 error")
-		} else if string(message) == "\"ping3\"" {
+		case `"ping3"`:
 			lastReceivedMessage = "ping3"
 			return []byte("\"pong3\""), nil
-		} else {
+		default:
 			panic(nil)
 		}
 	})
@@ -88,24 +90,21 @@ func Test001(t *testing.T) {
 	recentInput := ""
 
 	doTick := func(t *testing.T) {
-		ticker.Tick(context.Background())
+		ticker.Tick(ctx)
 
-		sr, err := client.Call(context.Background(), "get_recent_input", shiroclient.WithParams([]interface{}{}))
-		if err != nil || sr.Error() != nil {
-			t.Fatal()
-		}
+		sr, err := client.Call(ctx, "get_recent_input", shiroclient.WithParams([]interface{}{}))
+		require.NoError(t, err, "Error calling get_recent_input")
+		require.Nil(t, sr.Error(), "Result contains an error")
 
 		err = json.Unmarshal(sr.ResultJSON(), &recentInput)
-		if err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, err, "Error unmarshalling JSON")
 	}
 
 	table := []struct {
 		name      string
 		method    string
 		params    interface{}
-		validator func(*testing.T) bool
+		validator func(*testing.T)
 	}{
 		{
 			"first test - immediately scheduled batch request",
@@ -114,8 +113,9 @@ func Test001(t *testing.T) {
 				"test_batch",
 				"ping1",
 			},
-			func(t *testing.T) bool {
-				return lastReceivedMessage == "ping1" && recentInput == "pong1"
+			func(t *testing.T) {
+				assert.Equal(t, "ping1", lastReceivedMessage, "lastReceivedMessage should be 'ping1'")
+				assert.Equal(t, "pong1", recentInput, "recentInput should be 'pong1'")
 			},
 		},
 
@@ -126,11 +126,13 @@ func Test001(t *testing.T) {
 				"test_batch",
 				"ping2",
 			},
-			func(t *testing.T) bool {
-				return lastReceivedMessage == "ping2" && recentInput == "error: ping2 error"
+			func(t *testing.T) {
+				assert.Equal(t, "ping2", lastReceivedMessage, "lastReceivedMessage should be 'ping2'")
+				assert.Equal(t, "error: ping2 error", recentInput, "recentInput should be 'error: ping2 error'")
 			},
 		},
 
+		// TODO: fix this test
 		{
 			"third test - schedule at times other than now",
 			"schedule_request",
@@ -139,36 +141,33 @@ func Test001(t *testing.T) {
 				"ping3",
 				TS002,
 			},
-			func(t *testing.T) bool {
-				// should not have got ping3 yet
-				if lastReceivedMessage != "ping2" {
-					return false
-				}
+			func(t *testing.T) {
+				// First check: lastReceivedMessage should be "ping2". If not, the test should fail and stop.
+				require.Equal(t, "ping2", lastReceivedMessage, "Expected lastReceivedMessage to be 'ping2' before advancing time")
 
-				// now artificially advance time
+				// Now artificially advance time
 				tsAssign(TS003)
 
-				// tick (again)
+				// Tick (again)
 				doTick(t)
 
-				// now it should have worked
-				return lastReceivedMessage == "ping3" && recentInput == "pong3"
+				// Final checks: lastReceivedMessage should be "ping3" and recentInput should be "pong3".
+				// These are more assert checks as they are testing the outcome after the tick.
+				assert.Equal(t, "ping3", lastReceivedMessage, "Expected lastReceivedMessage to be 'ping3' after ticking")
+				assert.Equal(t, "pong3", recentInput, "Expected recentInput to be 'pong3' after ticking")
 			},
 		},
 	}
 
 	for _, tt := range table {
 		t.Run(tt.name, func(t *testing.T) {
-			sr, err := client.Call(context.Background(), tt.method, shiroclient.WithParams(tt.params))
-			if err != nil || sr.Error() != nil {
-				t.Fatal()
-			}
+			sr, err := client.Call(ctx, tt.method, shiroclient.WithParams(tt.params))
+			require.NoError(t, err)
+			require.NoError(t, sr.Error())
 
 			doTick(t)
 
-			if !(tt.validator(t)) {
-				t.Fatal()
-			}
+			tt.validator(t)
 		})
 	}
 
