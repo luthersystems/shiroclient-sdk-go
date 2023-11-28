@@ -40,30 +40,6 @@ type Block = types.Block
 
 var _ ShiroClient = (*rpcShiroClient)(nil)
 
-// ProbeForCall returns the option values required for a call implied
-// by an array of options.
-func ProbeForCall(configs []Config) (context.Context, string, func(context.Context) string, logrus.Fields, string, string, interface{}, map[string][]byte, error) {
-	rpc := &rpcShiroClient{baseConfig: nil, defaultLog: nil, httpClient: http.Client{}}
-	ctx := context.TODO()
-	ro, err := rpc.applyConfigs(ctx, configs...)
-	if err != nil {
-		return nil, "", nil, nil, "", "", nil, nil, err
-	}
-	return ro.Ctx, ro.ID, ro.TimestampGenerator, ro.LogFields, ro.AuthToken, ro.Creator, ro.Params, ro.Transient, nil
-}
-
-// ProbeForNew returns the option values required for creating a new
-// mock implied by an array of options.
-func ProbeForNew(configs []Config) (bool, *url.URL, error) {
-	rpc := &rpcShiroClient{baseConfig: nil, defaultLog: nil, httpClient: http.Client{}}
-	ctx := context.TODO()
-	ro, err := rpc.applyConfigs(ctx, configs...)
-	if err != nil {
-		return false, nil, err
-	}
-	return ro.CcFetchURLDowngrade, ro.CcFetchURLProxy, nil
-}
-
 const (
 	// MethodSeed is used to call the Seed method which re-opens a shiroclient.
 	MethodSeed = "Seed"

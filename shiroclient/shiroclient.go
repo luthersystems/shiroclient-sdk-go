@@ -5,11 +5,14 @@ package shiroclient
 import (
 	"context"
 	"encoding/base64"
+	"net/url"
 
 	imock "github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/mock"
+	dmock "github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/mock_deprecated"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/rpc"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
+	"github.com/sirupsen/logrus"
 )
 
 // ShiroClient interfaces with blockchain-based smart contract execution engine.
@@ -104,4 +107,18 @@ func UnmarshalProto(src []byte, dst interface{}) error {
 // the phylum healthcheck endpoint.
 func RemoteHealthCheck(ctx context.Context, client ShiroClient, services []string, configs ...Config) (HealthCheck, error) {
 	return rpc.RemoteHealthCheck(ctx, client, services, configs...)
+}
+
+// ProbeForCall returns the option values required for a call implied
+// by an array of options. This is used for mock mode only.
+// DEPRECATED: future versions will remove this function.
+func ProbeForCall(configs []Config) (context.Context, string, func(context.Context) string, logrus.Fields, string, string, interface{}, map[string][]byte, error) {
+	return dmock.ProbeForCall(configs)
+}
+
+// ProbeForNew returns the option values required for a call implied
+// by an array of options. This is used for mock mode only.
+// DEPRECATED: future versions will remove this function.
+func ProbeForNew(configs []Config) (bool, *url.URL, error) {
+	return dmock.ProbeForNew(configs)
 }
