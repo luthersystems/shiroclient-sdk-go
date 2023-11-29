@@ -13,7 +13,7 @@ import (
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/mockint"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
-	"github.com/luthersystems/substratecommon"
+	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock/plugin"
 )
 
 type ShiroClient = types.ShiroClient
@@ -41,14 +41,14 @@ type MockShiroClient interface {
 
 type mockShiroClient struct {
 	baseConfig  []Config
-	conn        *substratecommon.SubstrateConnection
+	conn        *plugin.SubstrateConnection
 	tag         string
 	shiroPhylum string
 }
 
 // applyConfigs applies configs -- baseConfigs supplied in the
 // constructor first, followed by configs arguments.
-func (c *mockShiroClient) flatten(configs ...Config) (*substratecommon.ConcreteRequestOptions, error) {
+func (c *mockShiroClient) flatten(configs ...Config) (*plugin.ConcreteRequestOptions, error) {
 	ctx := context.TODO()
 	opt := types.ApplyConfigs(ctx, nil, append(c.baseConfig, configs...)...)
 
@@ -75,7 +75,7 @@ func (c *mockShiroClient) flatten(configs ...Config) (*substratecommon.ConcreteR
 		return out
 	})
 
-	return &substratecommon.ConcreteRequestOptions{
+	return &plugin.ConcreteRequestOptions{
 		Headers:             opt.Headers,
 		Endpoint:            opt.Endpoint,
 		ID:                  opt.ID,
@@ -222,12 +222,12 @@ func NewMock(clientConfigs []Config, opts ...mock.Option) (MockShiroClient, erro
 			return nil, fmt.Errorf("%s not found in environment", mockint.DefaultPluginEnv)
 		}
 	}
-	pluginOpts := []substratecommon.ConnectOption{
-		substratecommon.ConnectWithCommand(config.PluginPath),
-		substratecommon.ConnectWithLogLevel(hcpLogLevel(config.LogLevel)),
-		substratecommon.ConnectWithAttachStdamp(config.LogWriter),
+	pluginOpts := []plugin.ConnectOption{
+		plugin.ConnectWithCommand(config.PluginPath),
+		plugin.ConnectWithLogLevel(hcpLogLevel(config.LogLevel)),
+		plugin.ConnectWithAttachStdamp(config.LogWriter),
 	}
-	conn, err := substratecommon.NewSubstrateConnection(pluginOpts...)
+	conn, err := plugin.NewSubstrateConnection(pluginOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to plugin: %w", err)
 	}
