@@ -10,6 +10,7 @@ import (
 
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
+	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -572,4 +573,28 @@ func Connect(user func(Substrate) error, opts ...ConnectOption) error {
 	}
 
 	return conn.Close()
+}
+
+// NewSuccessResponse is used by the plugin to return success ShiroResponse.
+func NewSuccessResponse(result []byte, txID string) types.ShiroResponse {
+	return types.NewSuccessResponse(result, txID)
+}
+
+// NewFailureResponse is used by the plugin to return failure ShiroResponse.
+func NewFailureResponse(code int, message string, data []byte) types.ShiroResponse {
+	return types.NewFailureResponse(code, message, data)
+}
+
+// newShiroClientTransaction is used by the plugin to return transaction details.
+func newShiroClientTransaction(tx *Transaction) types.Transaction {
+	return types.NewTransaction(tx.ID, tx.Reason, tx.Event, tx.ChaincodeID)
+}
+
+// NewShiroClientBlock is used by the plugin to return transaction details.
+func NewShiroClientBlock(blk *Block) types.Block {
+	txs := make([]types.Transaction, len(blk.Transactions))
+	for _, tx := range blk.Transactions {
+		txs = append(txs, newShiroClientTransaction(tx))
+	}
+	return types.NewBlock(blk.Hash, txs)
 }

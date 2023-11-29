@@ -68,23 +68,12 @@ func ApplyConfigs(ctx context.Context, log *logrus.Logger, configs ...Config) *R
 	}
 
 	opt := &RequestOptions{
-		Log:                 log,
-		LogFields:           make(logrus.Fields),
-		Headers:             make(map[string]string),
-		Endpoint:            "",
-		ID:                  uuid.String(),
-		Params:              nil,
-		Transient:           make(map[string][]byte),
-		Target:              nil,
-		TimestampGenerator:  nil,
-		MspFilter:           nil,
-		MinEndorsers:        0,
-		Creator:             "",
-		Ctx:                 ctx,
-		DependentTxID:       "",
-		DisableWritePolling: false,
-		DependentBlock:      "",
-		PhylumVersion:       "",
+		Log:       log,
+		LogFields: make(logrus.Fields),
+		Headers:   make(map[string]string),
+		ID:        uuid.String(),
+		Transient: make(map[string][]byte),
+		Ctx:       ctx,
 	}
 
 	for _, config := range configs {
