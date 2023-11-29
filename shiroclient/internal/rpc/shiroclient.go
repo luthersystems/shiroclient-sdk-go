@@ -18,6 +18,7 @@ import (
 	//nolint:staticcheck // Deprecated package "github.com/golang/protobuf/jsonpb" used for backwards compatibility
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
+	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/rpc"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -39,45 +40,6 @@ type Transaction = types.Transaction
 type Block = types.Block
 
 var _ ShiroClient = (*rpcShiroClient)(nil)
-
-const (
-	// MethodSeed is used to call the Seed method which re-opens a shiroclient.
-	MethodSeed = "Seed"
-	// MethodShiroPhylum is used to call the ShiroPhylum method which returns
-	// an identifier for the current deployed phylum.
-	MethodShiroPhylum = "ShiroPhylum"
-	// MethodInit is used to call the Init method which initializes substrate.
-	MethodInit = "Init"
-	// MethodCall is used to call the Call method which executes a method on
-	// the phylum.
-	MethodCall = "Call"
-	// MethodQueryInfo is used to call the QueryInfo method which returns the
-	// blockchain height.
-	MethodQueryInfo = "QueryInfo"
-	// MethodQueryBlock is used to call the QueryBlock method which returns the
-	// block information.
-	MethodQueryBlock = "QueryBlock"
-)
-
-const (
-	// ErrorLevelNoError indicates that no error occurred at any level
-	ErrorLevelNoError = iota
-	// ErrorLevelShiroClient indicates that an error occurred at the
-	// ShiroClient level. That is, the invoked ShiroClient function
-	// returned an error.
-	ErrorLevelShiroClient
-	// ErrorLevelPhylum indicates that the request was passed through to
-	// the phylum successfully, but the phylum itself returned an error
-	// response.
-	ErrorLevelPhylum
-)
-
-const (
-	// ErrorCodeShiroClientNone indicates no error code.
-	ErrorCodeShiroClientNone = iota
-	// ErrorCodeShiroClientTimeout indicates the shiro client timed out.
-	ErrorCodeShiroClientTimeout
-)
 
 type rpcShiroClient struct {
 	baseConfig []Config
@@ -117,7 +79,7 @@ func (e *scError) Error() string {
 func IsTimeoutError(err error) bool {
 	var se *scError
 	if errors.As(err, &se) {
-		return se.code == ErrorCodeShiroClientTimeout
+		return se.code == rpc.ErrorCodeShiroClientTimeout
 	}
 	return false
 }
@@ -421,7 +383,7 @@ func (c *rpcShiroClient) Seed(version string, configs ...Config) error {
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      opt.ID,
-		"method":  MethodSeed,
+		"method":  rpc.MethodSeed,
 		"params": map[string]interface{}{
 			"version": version,
 		},
@@ -433,10 +395,10 @@ func (c *rpcShiroClient) Seed(version string, configs ...Config) error {
 	}
 
 	switch res.errorLevel {
-	case ErrorLevelNoError:
+	case rpc.ErrorLevelNoError:
 		return nil
 
-	case ErrorLevelShiroClient:
+	case rpc.ErrorLevelShiroClient:
 		return res.getShiroClientError()
 
 	default:
@@ -455,7 +417,7 @@ func (c *rpcShiroClient) ShiroPhylum(configs ...Config) (string, error) {
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      opt.ID,
-		"method":  MethodShiroPhylum,
+		"method":  rpc.MethodShiroPhylum,
 		"params":  map[string]interface{}{},
 	}
 
@@ -465,7 +427,7 @@ func (c *rpcShiroClient) ShiroPhylum(configs ...Config) (string, error) {
 	}
 
 	switch res.errorLevel {
-	case ErrorLevelNoError:
+	case rpc.ErrorLevelNoError:
 		res, ok := res.result.(string)
 		if !ok {
 			return "", errors.New("ShiroClient.ShiroPhylum expected string result field")
@@ -473,7 +435,7 @@ func (c *rpcShiroClient) ShiroPhylum(configs ...Config) (string, error) {
 
 		return res, nil
 
-	case ErrorLevelShiroClient:
+	case rpc.ErrorLevelShiroClient:
 		return "", res.getShiroClientError()
 
 	default:
@@ -492,7 +454,7 @@ func (c *rpcShiroClient) Init(phylum string, configs ...Config) error {
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      opt.ID,
-		"method":  MethodInit,
+		"method":  rpc.MethodInit,
 		"params": map[string]interface{}{
 			"phylum": phylum,
 		},
@@ -504,10 +466,10 @@ func (c *rpcShiroClient) Init(phylum string, configs ...Config) error {
 	}
 
 	switch res.errorLevel {
-	case ErrorLevelNoError:
+	case rpc.ErrorLevelNoError:
 		return nil
 
-	case ErrorLevelShiroClient:
+	case rpc.ErrorLevelShiroClient:
 		return res.getShiroClientError()
 
 	default:
@@ -559,7 +521,7 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Con
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      opt.ID,
-		"method":  MethodCall,
+		"method":  rpc.MethodCall,
 		"params":  params,
 	}
 
@@ -581,7 +543,7 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Con
 	}
 
 	switch res.errorLevel {
-	case ErrorLevelNoError:
+	case rpc.ErrorLevelNoError:
 		resultJSON, err := json.Marshal(res.result)
 		if err != nil {
 			return nil, err
@@ -589,10 +551,10 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Con
 
 		return types.NewSuccessResponse(resultJSON, res.txID), nil
 
-	case ErrorLevelShiroClient:
+	case rpc.ErrorLevelShiroClient:
 		return nil, res.getShiroClientError()
 
-	case ErrorLevelPhylum:
+	case rpc.ErrorLevelPhylum:
 		dataJSON, err := json.Marshal(res.data)
 		if err != nil {
 			return nil, err
@@ -626,7 +588,7 @@ func (c *rpcShiroClient) QueryInfo(configs ...Config) (uint64, error) {
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      opt.ID,
-		"method":  MethodQueryInfo,
+		"method":  rpc.MethodQueryInfo,
 		"params":  map[string]interface{}{},
 	}
 
@@ -636,7 +598,7 @@ func (c *rpcShiroClient) QueryInfo(configs ...Config) (uint64, error) {
 	}
 
 	switch res.errorLevel {
-	case ErrorLevelNoError:
+	case rpc.ErrorLevelNoError:
 		height, ok := res.result.(float64)
 		if !ok {
 			return 0, errors.New("ShiroClient.QueryInfo expected a numeric result field")
@@ -644,7 +606,7 @@ func (c *rpcShiroClient) QueryInfo(configs ...Config) (uint64, error) {
 
 		return uint64(height), nil
 
-	case ErrorLevelShiroClient:
+	case rpc.ErrorLevelShiroClient:
 		return 0, res.getShiroClientError()
 
 	default:
@@ -663,7 +625,7 @@ func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Bloc
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      opt.ID,
-		"method":  MethodQueryBlock,
+		"method":  rpc.MethodQueryBlock,
 		"params":  map[string]interface{}{"block_number": float64(blockNumber)},
 	}
 
@@ -673,7 +635,7 @@ func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Bloc
 	}
 
 	switch res.errorLevel {
-	case ErrorLevelNoError:
+	case rpc.ErrorLevelNoError:
 		res, ok := res.result.(map[string]interface{})
 		if !ok {
 			return nil, errors.New("ShiroClient.QueryBlock expected an object result field")
@@ -799,7 +761,7 @@ func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Bloc
 
 		return types.NewBlock(blockHash, transactions), nil
 
-	case ErrorLevelShiroClient:
+	case rpc.ErrorLevelShiroClient:
 		return nil, res.getShiroClientError()
 
 	default:
