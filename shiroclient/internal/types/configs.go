@@ -1,4 +1,4 @@
-package rpc
+package types
 
 import (
 	"context"
@@ -145,4 +145,16 @@ func WithCCFetchURLProxy(proxy *url.URL) Config {
 
 func WithSingleton() Config {
 	return opt(func(r *RequestOptions) {})
+}
+
+func WithDependentBlock(block string) Config {
+	return opt(func(r *RequestOptions) {
+		r.DependentBlock = block
+	})
+}
+
+func WithPhylumVersion(phylumVersion string) Config {
+	return opt(func(r *RequestOptions) {
+		r.PhylumVersion = phylumVersion
+	})
 }

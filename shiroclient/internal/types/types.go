@@ -83,6 +83,8 @@ func ApplyConfigs(ctx context.Context, log *logrus.Logger, configs ...Config) *R
 		Ctx:                 ctx,
 		DependentTxID:       "",
 		DisableWritePolling: false,
+		DependentBlock:      "",
+		PhylumVersion:       "",
 	}
 
 	for _, config := range configs {
@@ -114,6 +116,8 @@ type RequestOptions struct {
 	DisableWritePolling bool
 	CcFetchURLDowngrade bool
 	CcFetchURLProxy     *url.URL
+	DependentBlock      string
+	PhylumVersion       string
 }
 
 // ShiroResponse is a wrapper for a response from a shiro

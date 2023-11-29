@@ -540,6 +540,12 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Con
 	if opt.DependentTxID != "" {
 		params["dependent_txid"] = opt.DependentTxID
 	}
+	if opt.DependentBlock != "" {
+		params["dependent_block"] = opt.DependentBlock
+	}
+	if opt.PhylumVersion != "" {
+		params["phylum_version"] = opt.PhylumVersion
+	}
 	if opt.DisableWritePolling {
 		params["disable_write_polling"] = opt.DisableWritePolling
 	}
