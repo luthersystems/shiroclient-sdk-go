@@ -100,15 +100,19 @@ func (r *rpcres) getShiroClientError() error {
 	}
 }
 
-func (c *rpcShiroClient) doRequest(ctx context.Context, httpReq *http.Request, log *logrus.Logger) ([]byte, error) {
+func (c *rpcShiroClient) doRequest(ctx context.Context, httpClient *http.Client, httpReq *http.Request, log *logrus.Logger) ([]byte, error) {
 	type result struct {
 		msg []byte
 		err error
 	}
 	resultCh := make(chan result, 1)
 
+	if httpClient == nil {
+		httpClient = &c.httpClient
+	}
+
 	go func() {
-		httpRes, err := c.httpClient.Do(httpReq.WithContext(ctx))
+		httpRes, err := httpClient.Do(httpReq.WithContext(ctx))
 		if err != nil {
 			// just abort here, as the response.Body will already be closed
 			// and you cannot drain a closed buffer.
@@ -201,7 +205,7 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *RequestOptions) (*rpcres, 
 		httpReq.Header.Set("Authorization", "Bearer "+opt.AuthToken)
 	}
 
-	msg, err := c.doRequest(ctx, httpReq, opt.Log)
+	msg, err := c.doRequest(ctx, opt.HTTPClient, httpReq, opt.Log)
 	if err != nil {
 		return nil, fmt.Errorf("ShiroClient.reqres: %w", err)
 	}
@@ -326,7 +330,7 @@ func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, con
 		return nil, fmt.Errorf("healthcheck request: %w", err)
 	}
 
-	body, err := c.doRequest(ctx, hreq, c.defaultLog)
+	body, err := c.doRequest(ctx, opt.HTTPClient, hreq, c.defaultLog)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck perform: %w", err)
 	}

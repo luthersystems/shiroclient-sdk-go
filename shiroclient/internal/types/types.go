@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 
 	//nolint:staticcheck // Deprecated package "github.com/golang/protobuf/jsonpb" used for backwards compatibility
@@ -87,6 +88,7 @@ func ApplyConfigs(ctx context.Context, log *logrus.Logger, configs ...Config) *R
 // the With* functions. There is no need for a consumer of this
 // library to directly manipulate objects of this type.
 type RequestOptions struct {
+	HTTPClient          *http.Client
 	Log                 *logrus.Logger
 	LogFields           logrus.Fields
 	Headers             map[string]string

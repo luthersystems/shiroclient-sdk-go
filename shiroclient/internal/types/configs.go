@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 
 	"github.com/sirupsen/logrus"
@@ -17,6 +18,12 @@ func (s *standardConfig) Fn(r *RequestOptions) {
 
 func opt(fn func(r *RequestOptions)) Config {
 	return &standardConfig{fn}
+}
+
+func WithHTTPClient(client *http.Client) Config {
+	return opt(func(r *RequestOptions) {
+		r.HTTPClient = client
+	})
 }
 
 func WithContext(ctx context.Context) Config {

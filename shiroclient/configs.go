@@ -2,11 +2,17 @@ package shiroclient
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
 	"github.com/sirupsen/logrus"
 )
+
+// WithHTTPClient allows specifying an http client for RPC calls.
+func WithHTTPClient(client *http.Client) Config {
+	return types.WithHTTPClient(client)
+}
 
 // WithContext allows specifying the context to use.
 func WithContext(ctx context.Context) Config {
