@@ -95,6 +95,7 @@ func UnmarshalProto(src []byte, dst interface{}) error {
 // created with NewRPC, services should be specified using canonical names
 //		phylum
 //		shiroclient_gateway
+//		fabric_peer
 //		...
 // Unrecognized service names are ignored, though may still be sent to upstream
 // gateways.
