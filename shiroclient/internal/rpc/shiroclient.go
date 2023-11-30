@@ -295,7 +295,8 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *RequestOptions) (*rpcres, 
 // constructor first, followed by configs arguments.
 func (c *rpcShiroClient) applyConfigs(ctx context.Context, configs ...Config) (*RequestOptions, error) {
 	tConfigs := make([]Config, 0, len(c.baseConfig)+len(configs))
-	tConfigs = append(tConfigs, append(c.baseConfig, configs...)...)
+	tConfigs = append(tConfigs, c.baseConfig...)
+	tConfigs = append(tConfigs, configs...)
 	return types.ApplyConfigs(ctx, c.defaultLog, tConfigs...), nil
 }
 
