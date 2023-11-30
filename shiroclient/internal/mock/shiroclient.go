@@ -16,31 +16,19 @@ import (
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock/plugin"
 )
 
-type ShiroClient = types.ShiroClient
-
-type Config = types.Config
-
-type ShiroResponse = types.ShiroResponse
-
-type Error = types.Error
-
-type Transaction = types.Transaction
-
-type Block = types.Block
-
-var _ ShiroClient = (*mockShiroClient)(nil)
+var _ types.ShiroClient = (*mockShiroClient)(nil)
 
 var _ MockShiroClient = (*mockShiroClient)(nil)
 
 type MockShiroClient interface {
-	ShiroClient
+	types.ShiroClient
 	Close() error
 	Snapshot(w io.Writer) error
 	SetCreatorWithAttributes(creator string, attrs map[string]string) error
 }
 
 type mockShiroClient struct {
-	baseConfig  []Config
+	baseConfig  []types.Config
 	conn        *plugin.SubstrateConnection
 	tag         string
 	shiroPhylum string
@@ -48,7 +36,7 @@ type mockShiroClient struct {
 
 // applyConfigs applies configs -- baseConfigs supplied in the
 // constructor first, followed by configs arguments.
-func (c *mockShiroClient) flatten(configs ...Config) (*plugin.ConcreteRequestOptions, error) {
+func (c *mockShiroClient) flatten(configs ...types.Config) (*plugin.ConcreteRequestOptions, error) {
 	ctx := context.TODO()
 	opt := types.ApplyConfigs(ctx, nil, append(c.baseConfig, configs...)...)
 
@@ -96,17 +84,17 @@ func (c *mockShiroClient) flatten(configs ...Config) (*plugin.ConcreteRequestOpt
 }
 
 // Seed implements the ShiroClient interface.
-func (c *mockShiroClient) Seed(version string, configs ...Config) error {
+func (c *mockShiroClient) Seed(version string, configs ...types.Config) error {
 	return fmt.Errorf("Seed(...) is not supported")
 }
 
 // ShiroPhylum implements the ShiroClient interface.
-func (c *mockShiroClient) ShiroPhylum(configs ...Config) (string, error) {
+func (c *mockShiroClient) ShiroPhylum(configs ...types.Config) (string, error) {
 	return c.shiroPhylum, nil
 }
 
 // Init implements the ShiroClient interface.
-func (c *mockShiroClient) Init(phylum string, configs ...Config) error {
+func (c *mockShiroClient) Init(phylum string, configs ...types.Config) error {
 	cro, err := c.flatten(configs...)
 	if err != nil {
 		return err
@@ -115,7 +103,7 @@ func (c *mockShiroClient) Init(phylum string, configs ...Config) error {
 }
 
 // Call implements the ShiroClient interface.
-func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...Config) (ShiroResponse, error) {
+func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...types.Config) (types.ShiroResponse, error) {
 	cro, err := c.flatten(configs...)
 	if err != nil {
 		return nil, err
@@ -134,7 +122,7 @@ func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...Co
 }
 
 // QueryInfo implements the ShiroClient interface.
-func (c *mockShiroClient) QueryInfo(configs ...Config) (uint64, error) {
+func (c *mockShiroClient) QueryInfo(configs ...types.Config) (uint64, error) {
 	cro, err := c.flatten(configs...)
 	if err != nil {
 		return 0, err
@@ -144,7 +132,7 @@ func (c *mockShiroClient) QueryInfo(configs ...Config) (uint64, error) {
 }
 
 // QueryBlock implements the ShiroClient interface.
-func (c *mockShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Block, error) {
+func (c *mockShiroClient) QueryBlock(blockNumber uint64, configs ...types.Config) (types.Block, error) {
 	cro, err := c.flatten(configs...)
 	if err != nil {
 		return nil, err
@@ -157,7 +145,7 @@ func (c *mockShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Blo
 
 	transactionsIn := blk.Transactions
 
-	transactions := make([]Transaction, len(transactionsIn))
+	transactions := make([]types.Transaction, len(transactionsIn))
 
 	for i, transactionIn := range transactionsIn {
 		transactions[i] = types.NewTransaction(transactionIn.ID, transactionIn.Reason, transactionIn.Event, transactionIn.ChaincodeID)
@@ -211,7 +199,7 @@ func hcpLogLevel(mockLevel mockint.LogLevel) hclog.Level {
 	}
 }
 
-func NewMock(clientConfigs []Config, opts ...mock.Option) (MockShiroClient, error) {
+func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient, error) {
 	config := &mockint.Config{
 		LogWriter: os.Stdout,
 	}
