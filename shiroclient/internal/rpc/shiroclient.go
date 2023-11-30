@@ -181,10 +181,6 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *RequestOptions) (*rpcres, 
 		return nil, err
 	}
 
-	if opt.Endpoint == "" {
-		return nil, errors.New("ShiroClient.reqres expected an endpoint to be set")
-	}
-
 	ctx := opt.Ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -312,9 +308,6 @@ func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, con
 	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck config: %w", err)
-	}
-	if opt.Endpoint == "" {
-		return nil, errors.New("ShiroClient.HealthCheck expected an endpoint to be set")
 	}
 	checkURL, err := gatewayHealthCheckURL(opt.Endpoint, services)
 	if err != nil {
