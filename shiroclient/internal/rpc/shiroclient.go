@@ -16,13 +16,10 @@ import (
 	"path"
 
 	//nolint:staticcheck // Deprecated package "github.com/golang/protobuf/jsonpb" used for backwards compatibility
-	"github.com/golang/protobuf/jsonpb"
+
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/rpc"
 	"github.com/sirupsen/logrus"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/runtime/protoiface"
 )
 
 type ShiroClient = types.ShiroClient
@@ -781,23 +778,4 @@ func NewRPC(clientConfigs []Config) ShiroClient {
 		defaultLog: logrus.New(),
 		httpClient: http.Client{},
 	}
-}
-
-// UnmarshalProto attempts to unmarshal protobuf bytes with backwards compatability.
-func UnmarshalProto(src []byte, dst interface{}) error {
-	var err error
-	switch message := dst.(type) {
-	case proto.Message:
-		err = protojson.Unmarshal(src, message)
-	case protoiface.MessageV1:
-		//nolint:staticcheck // Deprecated Unmarshal used for backwards compatibility
-		err = jsonpb.Unmarshal(bytes.NewReader(src), message)
-	default:
-		err = json.Unmarshal(src, message)
-	}
-	if err != nil {
-		return err
-	}
-
-	return nil
 }

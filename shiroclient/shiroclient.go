@@ -81,7 +81,7 @@ func EncodePhylumBytes(decoded []byte) string {
 
 // UnmarshalProto attempts to unmarshal protobuf bytes with backwards compatability.
 func UnmarshalProto(src []byte, dst interface{}) error {
-	return rpc.UnmarshalProto(src, dst)
+	return types.UnmarshalProto(src, dst)
 }
 
 // RemoteHealthCheck checks connectivity between the SDK client (e.g. oracle
