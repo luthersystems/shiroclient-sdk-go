@@ -159,8 +159,8 @@ func (c *mockShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Blo
 
 	transactions := make([]Transaction, len(transactionsIn))
 
-	for _, transactionIn := range transactionsIn {
-		transactions = append(transactions, types.NewTransaction(transactionIn.ID, transactionIn.Reason, transactionIn.Event, transactionIn.ChaincodeID))
+	for i, transactionIn := range transactionsIn {
+		transactions[i] = types.NewTransaction(transactionIn.ID, transactionIn.Reason, transactionIn.Event, transactionIn.ChaincodeID)
 	}
 
 	return types.NewBlock(blk.Hash, transactions), nil

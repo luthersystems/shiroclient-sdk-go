@@ -66,8 +66,9 @@ func (d *Driver) call(ctx context.Context, method string, params interface{}, ba
 	if requestID != "" {
 		fields["requestID"] = requestID
 	}
-	configs := make([]shiroclient.Config, 0)
-	configs = append(configs, shiroclient.WithParams(params), shiroclient.WithLogrusFields(d.opt.logFields), shiroclient.WithLogrusFields(fields), shiroclient.WithParams(params))
+	newConfigs := []shiroclient.Config{shiroclient.WithParams(params), shiroclient.WithLogrusFields(d.opt.logFields), shiroclient.WithLogrusFields(fields), shiroclient.WithParams(params)}
+	configs := make([]shiroclient.Config, 0, len(newConfigs)+len(clientConfigs))
+	configs = append(configs, newConfigs...)
 	configs = append(configs, clientConfigs...)
 	sr, err := d.client.Call(ctx, method, configs...)
 	if err != nil {

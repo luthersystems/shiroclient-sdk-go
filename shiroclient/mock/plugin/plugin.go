@@ -593,8 +593,8 @@ func newShiroClientTransaction(tx *Transaction) types.Transaction {
 // NewShiroClientBlock is used by the plugin to return transaction details.
 func NewShiroClientBlock(blk *Block) types.Block {
 	txs := make([]types.Transaction, len(blk.Transactions))
-	for _, tx := range blk.Transactions {
-		txs = append(txs, newShiroClientTransaction(tx))
+	for i, tx := range blk.Transactions {
+		txs[i] = newShiroClientTransaction(tx)
 	}
 	return types.NewBlock(blk.Hash, txs)
 }
