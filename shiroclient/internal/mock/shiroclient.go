@@ -34,8 +34,6 @@ type mockShiroClient struct {
 	shiroPhylum string
 }
 
-// applyConfigs applies configs -- baseConfigs supplied in the
-// constructor first, followed by configs arguments.
 func (c *mockShiroClient) flatten(configs ...types.Config) (*plugin.ConcreteRequestOptions, error) {
 	ctx := context.TODO()
 	opt := types.ApplyConfigs(ctx, nil, append(c.baseConfig, configs...)...)
