@@ -1,3 +1,7 @@
+// Package private enables the secure processing of PII data within substrate.
+// It provides helpers to encrypt and decrypt data that is sent to substrate
+// for subsequent processing, as well as purging data belonging to an
+// individual.
 package private
 
 import (

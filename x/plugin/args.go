@@ -1,12 +1,13 @@
-// This file includes helpers for the plugin to extract configuration
-// arguments and will be removed in later versions.
+// Package plugin includes helpers for the substrate plugin implementation
+// to extract configuration arguments.
+// WARNING: This is unstable will be removed in later versions.
 package plugin
 
 import (
 	"context"
 	"net/url"
 
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
+	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/sirupsen/logrus"
 )
 

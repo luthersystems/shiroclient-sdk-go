@@ -6,9 +6,9 @@ import (
 	"context"
 	"encoding/base64"
 
-	imock "github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/mock"
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/rpc"
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
+	imock "github.com/luthersystems/shiroclient-sdk-go/internal/mock"
+	"github.com/luthersystems/shiroclient-sdk-go/internal/rpc"
+	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
 )
 

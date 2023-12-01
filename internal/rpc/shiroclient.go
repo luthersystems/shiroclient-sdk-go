@@ -15,8 +15,8 @@ import (
 	"net/url"
 	"path"
 
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/rpc"
+	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
+	"github.com/luthersystems/shiroclient-sdk-go/x/rpc"
 	"github.com/sirupsen/logrus"
 )
 

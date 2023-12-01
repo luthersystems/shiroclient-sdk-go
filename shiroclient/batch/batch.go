@@ -1,3 +1,7 @@
+// Package batch allows registering callbacks to handle requests issued
+// by the substrate batching mechanism. A driver polls substrate for
+// pending requests, passes the requests to the callback, and returns the
+// response to substrate.
 package batch
 
 import (

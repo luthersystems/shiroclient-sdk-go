@@ -4,10 +4,10 @@ on:
     branches:
     - main
 jobs:
-  build:
+  build-test:
     runs-on: ubuntu-latest
     container:
-      image: luthersystems/build-go:v0.0.72
+      image: luthersystems/build-go:v0.0.79
     steps:
     - uses: actions/checkout@v3.5.0
     - name: Set license file

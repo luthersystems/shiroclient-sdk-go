@@ -1,4 +1,7 @@
-// Package rpc includes constants used by the shiroclient-gateway implementation.
+// Package rpc includes constants used by the shiroclient-gateway RPC
+// implementation.
+// WARNING: this should only be used by the substrate implementation of
+// shiroclient, and is subject to breaking changes.
 package rpc
 
 const (

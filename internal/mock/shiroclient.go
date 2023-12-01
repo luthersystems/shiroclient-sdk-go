@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-hclog"
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/mockint"
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
+	"github.com/luthersystems/shiroclient-sdk-go/internal/mockint"
+	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock/plugin"
+	"github.com/luthersystems/shiroclient-sdk-go/x/plugin"
 )
 
 var _ types.ShiroClient = (*mockShiroClient)(nil)
