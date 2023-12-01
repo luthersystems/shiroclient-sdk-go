@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
 )
 
 var _ smartHealthCheck = (*rpcShiroClient)(nil)
@@ -12,7 +14,7 @@ var _ smartHealthCheck = (*rpcShiroClient)(nil)
 // implementations outside of this package.  The interface is subject to
 // change.
 type smartHealthCheck interface {
-	HealthCheck(ctx context.Context, services []string, configs ...Config) (HealthCheck, error)
+	HealthCheck(ctx context.Context, services []string, configs ...types.Config) (HealthCheck, error)
 }
 
 type HealthCheck interface {
@@ -126,7 +128,7 @@ func convertHealthReport(rawReport interface{}) (*healthreport, error) {
 	return report, nil
 }
 
-func rpcError(resp ShiroResponse) error {
+func rpcError(resp types.ShiroResponse) error {
 	err := resp.Error()
 	if err != nil {
 		return &_rpcError{err}
@@ -135,7 +137,7 @@ func rpcError(resp ShiroResponse) error {
 }
 
 type _rpcError struct {
-	err Error
+	err types.Error
 }
 
 func (e *_rpcError) Error() string {
@@ -147,7 +149,7 @@ func (e *_rpcError) Error() string {
 	return fmt.Sprintf("rpc error code %v %s%s", e.err.Code(), e.err.Message(), trailer)
 }
 
-func RemoteHealthCheck(ctx context.Context, client ShiroClient, services []string, configs ...Config) (HealthCheck, error) {
+func RemoteHealthCheck(ctx context.Context, client types.ShiroClient, services []string, configs ...types.Config) (HealthCheck, error) {
 	switch client := client.(type) {
 	case smartHealthCheck:
 		return client.HealthCheck(ctx, services, configs...)

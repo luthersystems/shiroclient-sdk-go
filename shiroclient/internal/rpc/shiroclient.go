@@ -15,31 +15,15 @@ import (
 	"net/url"
 	"path"
 
-	//nolint:staticcheck // Deprecated package "github.com/golang/protobuf/jsonpb" used for backwards compatibility
-
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/rpc"
 	"github.com/sirupsen/logrus"
 )
 
-type ShiroClient = types.ShiroClient
-
-type Config = types.Config
-
-type RequestOptions = types.RequestOptions
-
-type ShiroResponse = types.ShiroResponse
-
-type Error = types.Error
-
-type Transaction = types.Transaction
-
-type Block = types.Block
-
-var _ ShiroClient = (*rpcShiroClient)(nil)
+var _ types.ShiroClient = (*rpcShiroClient)(nil)
 
 type rpcShiroClient struct {
-	baseConfig []Config
+	baseConfig []types.Config
 	defaultLog *logrus.Logger
 	httpClient http.Client
 }
@@ -175,7 +159,7 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpClient *http.Client,
 // reqres is a round-trip "request/response" helper. Marshals "req",
 // logs it at debug level, makes the HTTP request, reads and logs the
 // response at debug level, unmarshals, parses into rpcres.
-func (c *rpcShiroClient) reqres(req interface{}, opt *RequestOptions) (*rpcres, error) {
+func (c *rpcShiroClient) reqres(req interface{}, opt *types.RequestOptions) (*rpcres, error) {
 	outmsg, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -297,8 +281,8 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *RequestOptions) (*rpcres, 
 
 // applyConfigs applies configs -- baseConfigs supplied in the
 // constructor first, followed by configs arguments.
-func (c *rpcShiroClient) applyConfigs(ctx context.Context, configs ...Config) (*RequestOptions, error) {
-	tConfigs := make([]Config, 0, len(c.baseConfig)+len(configs))
+func (c *rpcShiroClient) applyConfigs(ctx context.Context, configs ...types.Config) (*types.RequestOptions, error) {
+	tConfigs := make([]types.Config, 0, len(c.baseConfig)+len(configs))
 	tConfigs = append(tConfigs, c.baseConfig...)
 	tConfigs = append(tConfigs, configs...)
 	return types.ApplyConfigs(ctx, c.defaultLog, tConfigs...), nil
@@ -308,7 +292,7 @@ func (c *rpcShiroClient) applyConfigs(ctx context.Context, configs ...Config) (*
 // connectivity to the gateway itself and any specified upstream services.
 // HealthCheck is not part of the ShiroClient interface but it is recognized by
 // the RemoteHealthCheck function.
-func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, configs ...Config) (HealthCheck, error) {
+func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, configs ...types.Config) (HealthCheck, error) {
 	// Validate config and transform params
 	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
@@ -375,7 +359,7 @@ func urlQueryAppend(u *url.URL, vals url.Values) {
 }
 
 // Seed implements the ShiroClient interface.
-func (c *rpcShiroClient) Seed(version string, configs ...Config) error {
+func (c *rpcShiroClient) Seed(version string, configs ...types.Config) error {
 	ctx := context.TODO()
 	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
@@ -409,7 +393,7 @@ func (c *rpcShiroClient) Seed(version string, configs ...Config) error {
 }
 
 // ShiroPhylum implements the ShiroClient interface.
-func (c *rpcShiroClient) ShiroPhylum(configs ...Config) (string, error) {
+func (c *rpcShiroClient) ShiroPhylum(configs ...types.Config) (string, error) {
 	ctx := context.TODO()
 	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
@@ -446,7 +430,7 @@ func (c *rpcShiroClient) ShiroPhylum(configs ...Config) (string, error) {
 }
 
 // Init implements the ShiroClient interface.
-func (c *rpcShiroClient) Init(phylum string, configs ...Config) error {
+func (c *rpcShiroClient) Init(phylum string, configs ...types.Config) error {
 	ctx := context.TODO()
 	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
@@ -480,7 +464,7 @@ func (c *rpcShiroClient) Init(phylum string, configs ...Config) error {
 }
 
 // Call implements the ShiroClient interface.
-func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Config) (ShiroResponse, error) {
+func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...types.Config) (types.ShiroResponse, error) {
 	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
 		return nil, err
@@ -580,7 +564,7 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...Con
 }
 
 // QueryInfo implements the ShiroClient interface.
-func (c *rpcShiroClient) QueryInfo(configs ...Config) (uint64, error) {
+func (c *rpcShiroClient) QueryInfo(configs ...types.Config) (uint64, error) {
 	ctx := context.TODO()
 	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
@@ -617,7 +601,7 @@ func (c *rpcShiroClient) QueryInfo(configs ...Config) (uint64, error) {
 }
 
 // QueryBlock implements the ShiroClient interface.
-func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Block, error) {
+func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...types.Config) (types.Block, error) {
 	ctx := context.TODO()
 	opt, err := c.applyConfigs(ctx, configs...)
 	if err != nil {
@@ -751,7 +735,7 @@ func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Bloc
 
 		// build transactions
 
-		transactions := make([]Transaction, len(txidsOut))
+		transactions := make([]types.Transaction, len(txidsOut))
 
 		if len(txidsOut) != len(reasonsOut) {
 			return nil, errors.New("ShiroClient.QueryBlock: mismatched parallel arrays")
@@ -773,7 +757,7 @@ func (c *rpcShiroClient) QueryBlock(blockNumber uint64, configs ...Config) (Bloc
 
 // NewRPC creates a new RPC ShiroClient with the given set of base
 // configs that will be applied to all commands.
-func NewRPC(clientConfigs []Config) ShiroClient {
+func NewRPC(clientConfigs []types.Config) types.ShiroClient {
 	return &rpcShiroClient{
 		baseConfig: clientConfigs,
 		defaultLog: logrus.New(),
