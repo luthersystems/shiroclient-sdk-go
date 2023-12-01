@@ -27,8 +27,8 @@
   (cc:infof () (get rep "init message"))
   (route-success ())))
 
-(defendpoint schedule_request (batch_name req when)
-  (schedule batch_name req when))
+(defendpoint schedule_request (batch_name req when-time)
+  (schedule batch_name req when-time))
 
 (defendpoint schedule_request_now (batch_name req)
   (cc:infof () "in schedule_request_now")
