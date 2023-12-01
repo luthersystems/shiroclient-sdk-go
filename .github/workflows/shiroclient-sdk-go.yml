@@ -4,7 +4,7 @@ on:
     branches:
     - main
 jobs:
-  build:
+  build-test:
     runs-on: ubuntu-latest
     container:
       image: luthersystems/build-go:v0.0.72
