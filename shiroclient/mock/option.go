@@ -1,9 +1,11 @@
+// Package mock provides utilities for configuring a mock (in-memory)
+// shiroclient.
 package mock
 
 import (
 	"io"
 
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/mockint"
+	"github.com/luthersystems/shiroclient-sdk-go/internal/mockint"
 )
 
 const (

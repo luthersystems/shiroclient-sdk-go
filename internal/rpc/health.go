@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
+	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 )
 
 var _ smartHealthCheck = (*rpcShiroClient)(nil)

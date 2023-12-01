@@ -1,3 +1,7 @@
+// Package plugin includes helpers for the substrate plugin implementation
+// to extract configuration arguments.
+// WARNING: This is unstable and really should only be used by the underlying
+// substrate implementation. It will be removed in later versions.
 package plugin
 
 import (
@@ -10,7 +14,7 @@ import (
 
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
-	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/internal/types"
+	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
@@ -41,6 +45,7 @@ type Error struct {
 	Diagnostic string
 }
 
+// Error returns the underlying details.
 func (e Error) Error() string {
 	return e.Diagnostic
 }
@@ -492,6 +497,7 @@ func ConnectWithAttachStdamp(attachStdamp io.Writer) func(co *connectOption) err
 	})
 }
 
+// SubstrateConnection interacts with the underlying plugin.
 type SubstrateConnection struct {
 	client    *plugin.Client
 	substrate Substrate
