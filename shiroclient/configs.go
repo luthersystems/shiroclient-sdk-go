@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
+	"github.com/luthersystems/shiroclient-sdk-go/x/trace"
 	"github.com/sirupsen/logrus"
 )
 
@@ -210,5 +211,15 @@ func WithDependentBlock(block string) Config {
 func WithPhylumVersion(phylumVersion string) Config {
 	return opt(func(r *types.RequestOptions) {
 		r.PhylumVersion = phylumVersion
+	})
+}
+
+// WithJaegerTracing sets options to enable tracing with Jaeger.  The
+// collectorURI param is the full URI to the Jaeger HTTP Thrift collector.  For
+// example, http://localhost:14268/api/traces.
+func WithJaegerTracing(collectorURI, datasetID string) Config {
+	return opt(func(r *types.RequestOptions) {
+		r.Transient[trace.TransientKeyJaegerCollectorURI] = []byte(collectorURI)
+		r.Transient[trace.TransientKeyDatasetID] = []byte(datasetID)
 	})
 }
