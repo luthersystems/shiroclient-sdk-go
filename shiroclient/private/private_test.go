@@ -361,10 +361,10 @@ func TestPrivate(t *testing.T) {
 	}
 	client, err := newMockClient()
 	require.NoError(t, err)
-	defer func() {
+	t.Cleanup(func() {
 		err := client.Close()
 		require.NoError(t, err)
-	}()
+	})
 
 	for _, tc := range tests {
 		t.Run(tc.Name, func(t *testing.T) {

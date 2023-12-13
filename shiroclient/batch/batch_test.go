@@ -54,10 +54,10 @@ func Test001(t *testing.T) {
 	}
 	client, err := shiroclient.NewMock(clientConfigs)
 	require.Nil(t, err)
-	defer func() {
+	t.Cleanup(func() {
 		err := client.Close()
 		require.NoError(t, err)
-	}()
+	})
 
 	err = client.Init(shiroclient.EncodePhylumBytes(testPhylum))
 	if err != nil {

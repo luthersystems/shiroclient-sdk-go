@@ -36,8 +36,9 @@ type ConcreteRequestOptions struct {
 	DisableWritePolling bool
 	CCFetchURLDowngrade bool
 	CCFetchURLProxy     string
-	PhylumVersion       string
 	DependentBlock      string
+	PhylumVersion       string
+	NewPhylumVersion    string
 }
 
 // Error represents a possible error.
