@@ -178,9 +178,9 @@ func doSkipEncodeTx(configs []shiroclient.Config) bool {
 	return false
 }
 
-// WithParam returns a shiroclient config that passes a single parameter
+// withParam returns a shiroclient config that passes a single parameter
 // as an argument to an endpoint.
-func WithParam(arg interface{}) shiroclient.Config {
+func withParam(arg interface{}) shiroclient.Config {
 	return shiroclient.WithParams([]interface{}{arg})
 }
 
@@ -230,7 +230,7 @@ func encodeHelper(ctx context.Context, client shiroclient.ShiroClient, message i
 			return nil, nil, err
 		}
 
-		newConfigs = append(newConfigs, WithParam(encResp))
+		newConfigs = append(newConfigs, withParam(encResp))
 		return encResp, newConfigs, nil
 	}
 
@@ -247,7 +247,7 @@ func encodeHelper(ctx context.Context, client shiroclient.ShiroClient, message i
 		newConfigs = append(newConfigs, transientConfigs...)
 		// for this optimization, pass a hard coded "magic" request that tells
 		// `substrate` to look for the to-be encoded message in transient data.
-		newConfigs = append(newConfigs, WithParam(skipEncodeRequest))
+		newConfigs = append(newConfigs, withParam(skipEncodeRequest))
 	} else {
 
 		configs = append(configs, transientConfigs...)
@@ -266,7 +266,7 @@ func encodeHelper(ctx context.Context, client shiroclient.ShiroClient, message i
 		}
 
 		newConfigs = append(newConfigs, shiroclient.WithDependentTxID(resp.TransactionID()))
-		newConfigs = append(newConfigs, WithParam(enc))
+		newConfigs = append(newConfigs, withParam(enc))
 	}
 
 	return enc, newConfigs, nil
@@ -300,7 +300,7 @@ func Decode(ctx context.Context, client shiroclient.ShiroClient, encoded *Encode
 		}
 		return shiroclient.UnmarshalProto(rawBytes, decoded)
 	}
-	configs = append(configs, WithParam(encoded.encodedMessage))
+	configs = append(configs, withParam(encoded.encodedMessage))
 	resp, err := client.Call(ctx, ShiroEndpointDecode, configs...)
 	if err != nil {
 		return err
@@ -321,7 +321,7 @@ func Export(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, conf
 	if dsid == "" {
 		return nil, fmt.Errorf("invalid empty DSID")
 	}
-	configs = append(configs, WithParam(dsid))
+	configs = append(configs, withParam(dsid))
 	resp, err := client.Call(ctx, ShiroEndpointExport, configs...)
 	if err != nil {
 		return nil, err
@@ -343,7 +343,7 @@ func Purge(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, confi
 	if dsid == "" {
 		return fmt.Errorf("invalid empty DSID")
 	}
-	configs = append(configs, WithParam(dsid))
+	configs = append(configs, withParam(dsid))
 	seedConfig, err := WithSeed()
 	if err != nil {
 		return err
@@ -369,7 +369,7 @@ func Purge(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, confi
 
 // ProfileToDSID returns a DSID for a data subject profile.
 func ProfileToDSID(ctx context.Context, client shiroclient.ShiroClient, profile interface{}, configs ...shiroclient.Config) (DSID, error) {
-	configs = append(configs, WithParam(profile))
+	configs = append(configs, withParam(profile))
 	resp, err := client.Call(ctx, ShiroEndpointProfileToDSID, configs...)
 	if err != nil {
 		return "", err

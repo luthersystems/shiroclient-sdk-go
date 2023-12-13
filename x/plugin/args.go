@@ -62,3 +62,7 @@ func PluginCcFetchURLProxy(p pluginArgs) *url.URL {
 func PluginPhylumVersion(p pluginArgs) string {
 	return p.ro.PhylumVersion
 }
+
+func PluginNewPhylumVersion(p pluginArgs) string {
+	return p.ro.NewPhylumVersion
+}

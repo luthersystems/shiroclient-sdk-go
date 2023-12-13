@@ -43,24 +43,25 @@ func call(client shiroclient.ShiroClient, method string, params interface{}, tra
 	return sr.ResultJSON(), nil
 }
 
-func initClient(t *testing.T, client shiroclient.ShiroClient) {
-	err := client.Init(shiroclient.EncodePhylumBytes(testPhylum))
+func initClient(t *testing.T, client shiroclient.ShiroClient, phylum []byte) {
+	t.Helper()
+	err := client.Init(shiroclient.EncodePhylumBytes(phylum))
 	require.NoError(t, err)
 }
 
 func TestHealth(t *testing.T) {
 	client, err := shiroclient.NewMock(nil)
 	require.NoError(t, err)
-	defer func() {
+	t.Cleanup(func() {
 		err := client.Close()
 		require.NoError(t, err)
-	}()
-	initClient(t, client)
+	})
+	initClient(t, client, testPhylum)
 	version, err := client.ShiroPhylum()
 	require.NoError(t, err)
 	require.Equal(t, "test", version)
 
-	hcBytes, err := call(client, "healthcheck", map[string]interface{}{}, map[string][]byte{})
+	hcBytes, err := call(client, "healthcheck", nil, nil)
 	require.NoError(t, err)
 
 	fmt.Println(string(hcBytes))
@@ -78,10 +79,10 @@ func TestHealth(t *testing.T) {
 	require.Equal(t, "UP", report.Status)
 }
 
-func TestSnapshot(t *testing.T) {
+func TestSnapshotWithPhylum(t *testing.T) {
 	client, err := shiroclient.NewMock(nil)
 	require.NoError(t, err)
-	initClient(t, client)
+	initClient(t, client, testPhylum)
 
 	storedVal := "sample"
 	_, err = call(client, "write", []string{storedVal}, nil)
@@ -96,12 +97,13 @@ func TestSnapshot(t *testing.T) {
 	r := bytes.NewReader(snapshot.Bytes())
 	newClient, err := shiroclient.NewMock(nil, mock.WithSnapshotReader(r))
 	require.NoError(t, err)
-	defer func() {
+
+	t.Cleanup(func() {
 		err := newClient.Close()
 		require.NoError(t, err)
-	}()
+	})
 
-	resp, err := call(newClient, "read", map[string]interface{}{}, map[string][]byte{})
+	resp, err := call(newClient, "read", nil, nil)
 	require.NoError(t, err)
 	var val string
 	err = json.Unmarshal(resp, &val)

@@ -76,6 +76,7 @@ func (c *mockShiroClient) flatten(configs ...types.Config) (*plugin.ConcreteRequ
 		DependentBlock:      opt.DependentBlock,
 		DisableWritePolling: opt.DisableWritePolling,
 		PhylumVersion:       opt.PhylumVersion,
+		NewPhylumVersion:    opt.NewPhylumVersion,
 		CCFetchURLDowngrade: opt.CcFetchURLDowngrade,
 		CCFetchURLProxy:     url(opt.CcFetchURLProxy),
 	}, nil

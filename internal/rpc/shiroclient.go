@@ -494,6 +494,9 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 	if opt.PhylumVersion != "" {
 		params["phylum_version"] = opt.PhylumVersion
 	}
+	if opt.NewPhylumVersion != "" {
+		params["new_phylum_version"] = opt.NewPhylumVersion
+	}
 	if opt.DisableWritePolling {
 		params["disable_write_polling"] = opt.DisableWritePolling
 	}

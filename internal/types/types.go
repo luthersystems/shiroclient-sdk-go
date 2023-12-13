@@ -52,6 +52,20 @@ type ShiroClient interface {
 	QueryBlock(blockNumber uint64, config ...Config) (Block, error)
 }
 
+type standardConfig struct {
+	fn func(*RequestOptions)
+}
+
+// Fn implements Config.
+func (s *standardConfig) Fn(r *RequestOptions) {
+	s.fn(r)
+}
+
+// Opt creates a standard configuration option.
+func Opt(fn func(r *RequestOptions)) Config {
+	return &standardConfig{fn}
+}
+
 // Config is a type for a function that can mutate a types.RequestOptions
 // object.
 type Config interface {
@@ -109,6 +123,7 @@ type RequestOptions struct {
 	CcFetchURLProxy     *url.URL
 	DependentBlock      string
 	PhylumVersion       string
+	NewPhylumVersion    string
 }
 
 // ShiroResponse is a wrapper for a response from a shiro
