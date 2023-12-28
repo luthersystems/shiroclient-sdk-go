@@ -18,9 +18,12 @@ import (
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/x/rpc"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 var _ types.ShiroClient = (*rpcShiroClient)(nil)
+
+var tracePropagator = propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 
 type rpcShiroClient struct {
 	baseConfig []types.Config
@@ -186,6 +189,8 @@ func (c *rpcShiroClient) reqres(req interface{}, opt *types.RequestOptions) (*rp
 		httpReq.Header.Set("Authorization", "Bearer "+opt.AuthToken)
 	}
 
+	// if present, propagate trace from context over HTTP headers
+	tracePropagator.Inject(ctx, propagation.HeaderCarrier(httpReq.Header))
 	msg, err := c.doRequest(ctx, opt.HTTPClient, httpReq, opt.Log)
 	if err != nil {
 		return nil, fmt.Errorf("ShiroClient.reqres: %w", err)
