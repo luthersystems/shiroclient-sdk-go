@@ -605,3 +605,11 @@ func NewShiroClientBlock(blk *Block) types.Block {
 	}
 	return types.NewBlock(blk.Hash, txs)
 }
+
+// WithNewPhylumVersion allows set a new phylum version on install.
+// IMPORTANT: this will probably be deleted in a subsequent version.
+func WithNewPhylumVersion(phylumVersion string) types.Config {
+	return types.Opt(func(r *types.RequestOptions) {
+		r.NewPhylumVersion = phylumVersion
+	})
+}

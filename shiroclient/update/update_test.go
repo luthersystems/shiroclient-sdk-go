@@ -3,12 +3,15 @@ package update_test
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/update"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/luthersystems/shiroclient-sdk-go/x/plugin"
 )
 
 //go:embed shiroclient_test.lisp
@@ -77,18 +80,48 @@ func TestEnableDisable(t *testing.T) {
 	})
 }
 
-func TestInstall(t *testing.T) {
-	t.Skip() // TODO: enable this on new substrate release
+func call(ctx context.Context, client shiroclient.ShiroClient, method string, configs ...shiroclient.Config) ([]byte, error) {
+	sr, err := client.Call(ctx, method, configs...)
+	if err != nil {
+		return nil, err
+	}
 
+	if sr.Error() != nil {
+		return nil, errors.New(sr.Error().Message())
+	}
+
+	return sr.ResultJSON(), nil
+}
+
+func TestInstall(t *testing.T) {
 	client := client(t)
 	ctx := context.Background()
 
-	t.Run("install", func(t *testing.T) {
-		err := update.Install(ctx, client, "test2", testPhylum)
-		assert.NoError(t, err)
+	t.Run("init-2", func(t *testing.T) {
+		err := client.Init(shiroclient.EncodePhylumBytes(testPhylum), plugin.WithNewPhylumVersion("new"), shiroclient.WithContext(ctx))
+		require.NoError(t, err)
 
 		phyla, err := update.GetPhyla(ctx, client)
 		require.NoError(t, err)
 		require.Len(t, phyla.Phyla, 2)
+	})
+
+	t.Run("install", func(t *testing.T) {
+		err := update.Install(ctx, client, "test2", testPhylum)
+		require.NoError(t, err)
+
+		phyla, err := update.GetPhyla(ctx, client)
+		require.NoError(t, err)
+		require.Len(t, phyla.Phyla, 3)
+	})
+
+	t.Run("withPhylum", func(t *testing.T) {
+		resp, err := call(ctx, client, "read")
+		require.NoError(t, err)
+		require.Equal(t, `"test"`, string(resp))
+
+		resp, err = call(ctx, client, "read", shiroclient.WithPhylumVersion("test2"))
+		require.NoError(t, err)
+		require.Equal(t, `"test2"`, string(resp))
 	})
 }
