@@ -59,7 +59,9 @@ func Test001(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	err = client.Init(shiroclient.EncodePhylumBytes(testPhylum))
+	ctx := context.Background()
+
+	err = client.Init(ctx, shiroclient.EncodePhylumBytes(testPhylum))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,8 +69,6 @@ func Test001(t *testing.T) {
 	driver := batch.NewDriver(client, batch.WithLog(log), batch.WithLogField("TESTFIELD", "TESTVALUE"))
 
 	lastReceivedMessage := "none"
-
-	ctx := context.Background()
 
 	ticker := driver.Register(ctx, "test_batch", time.Duration(1)*time.Hour, func(batchID string, requestID string, message json.RawMessage) (json.RawMessage, error) {
 		messageStr := string(message)

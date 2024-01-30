@@ -17,13 +17,6 @@ func WithHTTPClient(client *http.Client) Config {
 	})
 }
 
-// WithContext allows specifying the context to use.
-func WithContext(ctx context.Context) Config {
-	return types.Opt(func(r *types.RequestOptions) {
-		r.Ctx = ctx
-	})
-}
-
 // WithLog allows specifying the logger to use.
 func WithLog(log *logrus.Logger) Config {
 	return types.Opt(func(r *types.RequestOptions) {

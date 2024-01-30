@@ -34,9 +34,8 @@ type mockShiroClient struct {
 	shiroPhylum string
 }
 
-func (c *mockShiroClient) flatten(configs ...types.Config) (*plugin.ConcreteRequestOptions, error) {
-	ctx := context.TODO()
-	opt := types.ApplyConfigs(ctx, nil, append(c.baseConfig, configs...)...)
+func (c *mockShiroClient) flatten(ctx context.Context, configs ...types.Config) (*plugin.ConcreteRequestOptions, error) {
+	opt := types.ApplyConfigs(nil, append(c.baseConfig, configs...)...)
 
 	params, err := json.Marshal(opt.Params)
 	if err != nil {
@@ -68,7 +67,7 @@ func (c *mockShiroClient) flatten(configs ...types.Config) (*plugin.ConcreteRequ
 		AuthToken:           opt.AuthToken,
 		Params:              params,
 		Transient:           opt.Transient,
-		Timestamp:           tsg(opt.Ctx, opt.TimestampGenerator),
+		Timestamp:           tsg(ctx, opt.TimestampGenerator),
 		MSPFilter:           opt.MspFilter,
 		MinEndorsers:        opt.MinEndorsers,
 		Creator:             opt.Creator,
@@ -83,18 +82,18 @@ func (c *mockShiroClient) flatten(configs ...types.Config) (*plugin.ConcreteRequ
 }
 
 // Seed implements the ShiroClient interface.
-func (c *mockShiroClient) Seed(version string, configs ...types.Config) error {
+func (c *mockShiroClient) Seed(_ context.Context, version string, configs ...types.Config) error {
 	return fmt.Errorf("Seed(...) is not supported")
 }
 
 // ShiroPhylum implements the ShiroClient interface.
-func (c *mockShiroClient) ShiroPhylum(configs ...types.Config) (string, error) {
+func (c *mockShiroClient) ShiroPhylum(_ context.Context, configs ...types.Config) (string, error) {
 	return c.shiroPhylum, nil
 }
 
 // Init implements the ShiroClient interface.
-func (c *mockShiroClient) Init(phylum string, configs ...types.Config) error {
-	cro, err := c.flatten(configs...)
+func (c *mockShiroClient) Init(ctx context.Context, phylum string, configs ...types.Config) error {
+	cro, err := c.flatten(ctx, configs...)
 	if err != nil {
 		return err
 	}
@@ -103,7 +102,7 @@ func (c *mockShiroClient) Init(phylum string, configs ...types.Config) error {
 
 // Call implements the ShiroClient interface.
 func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...types.Config) (types.ShiroResponse, error) {
-	cro, err := c.flatten(configs...)
+	cro, err := c.flatten(ctx, configs...)
 	if err != nil {
 		return nil, err
 	}
@@ -121,8 +120,8 @@ func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...ty
 }
 
 // QueryInfo implements the ShiroClient interface.
-func (c *mockShiroClient) QueryInfo(configs ...types.Config) (uint64, error) {
-	cro, err := c.flatten(configs...)
+func (c *mockShiroClient) QueryInfo(ctx context.Context, configs ...types.Config) (uint64, error) {
+	cro, err := c.flatten(ctx, configs...)
 	if err != nil {
 		return 0, err
 	}
@@ -131,8 +130,8 @@ func (c *mockShiroClient) QueryInfo(configs ...types.Config) (uint64, error) {
 }
 
 // QueryBlock implements the ShiroClient interface.
-func (c *mockShiroClient) QueryBlock(blockNumber uint64, configs ...types.Config) (types.Block, error) {
-	cro, err := c.flatten(configs...)
+func (c *mockShiroClient) QueryBlock(ctx context.Context, blockNumber uint64, configs ...types.Config) (types.Block, error) {
+	cro, err := c.flatten(ctx, configs...)
 	if err != nil {
 		return nil, err
 	}

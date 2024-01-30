@@ -45,7 +45,7 @@ func call(client shiroclient.ShiroClient, method string, params interface{}, tra
 
 func initClient(t *testing.T, client shiroclient.ShiroClient, phylum []byte) {
 	t.Helper()
-	err := client.Init(shiroclient.EncodePhylumBytes(phylum))
+	err := client.Init(context.Background(), shiroclient.EncodePhylumBytes(phylum))
 	require.NoError(t, err)
 }
 
@@ -57,7 +57,7 @@ func TestHealth(t *testing.T) {
 		require.NoError(t, err)
 	})
 	initClient(t, client, testPhylum)
-	version, err := client.ShiroPhylum()
+	version, err := client.ShiroPhylum(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "test", version)
 
