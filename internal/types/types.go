@@ -24,17 +24,17 @@ import (
 type ShiroClient interface {
 	// Seed re-opens the ShiroClient, specifying the phylum version to
 	// target.
-	Seed(version string, config ...Config) error
+	Seed(ctx context.Context, version string, config ...Config) error
 
 	// ShiroPhylum returns a non-empty string which should act as an
 	// indentifier indicating the deployed phylum code being executed by
 	// the shiro server.
-	ShiroPhylum(config ...Config) (string, error)
+	ShiroPhylum(ctx context.Context, config ...Config) (string, error)
 
 	// Init initializes the chaincode given a string containing
 	// base64-encoded phylum code.  The phylum code should be deployed
 	// with the identifier returned by method ShiroPhylum().
-	Init(phylum string, config ...Config) error
+	Init(ctx context.Context, phylum string, config ...Config) error
 
 	// Call executes method with the given parameters and commits the
 	// results.  The method shuold be executed by the phylum code
@@ -45,11 +45,11 @@ type ShiroClient interface {
 	Call(ctx context.Context, method string, config ...Config) (ShiroResponse, error)
 
 	// QueryInfo returns the blockchain height.
-	QueryInfo(config ...Config) (uint64, error)
+	QueryInfo(ctx context.Context, config ...Config) (uint64, error)
 
 	// QueryBlock returns summary information about the block given by
 	// blockNumber.
-	QueryBlock(blockNumber uint64, config ...Config) (Block, error)
+	QueryBlock(ctx context.Context, blockNumber uint64, config ...Config) (Block, error)
 }
 
 type standardConfig struct {
@@ -72,14 +72,10 @@ type Config interface {
 	Fn(*RequestOptions)
 }
 
-func ApplyConfigs(ctx context.Context, log *logrus.Logger, configs ...Config) *RequestOptions {
+func ApplyConfigs(log *logrus.Logger, configs ...Config) *RequestOptions {
 	uuid, err := uuid.NewRandom()
 	if err != nil {
 		panic(fmt.Errorf("uuid: %w", err))
-	}
-
-	if ctx == nil {
-		ctx = context.Background()
 	}
 
 	opt := &RequestOptions{
@@ -88,7 +84,6 @@ func ApplyConfigs(ctx context.Context, log *logrus.Logger, configs ...Config) *R
 		Headers:   make(map[string]string),
 		ID:        uuid.String(),
 		Transient: make(map[string][]byte),
-		Ctx:       ctx,
 	}
 
 	for _, config := range configs {
@@ -116,7 +111,6 @@ type RequestOptions struct {
 	MspFilter           []string
 	MinEndorsers        int
 	Creator             string
-	Ctx                 context.Context
 	DependentTxID       string
 	DisableWritePolling bool
 	CcFetchURLDowngrade bool

@@ -16,11 +16,7 @@ type pluginArgs struct {
 }
 
 func PluginArgs(configs []types.Config) pluginArgs {
-	return pluginArgs{ro: types.ApplyConfigs(context.TODO(), nil, configs...)}
-}
-
-func PluginCtx(p pluginArgs) context.Context {
-	return p.ro.Ctx
+	return pluginArgs{ro: types.ApplyConfigs(nil, configs...)}
 }
 
 func PluginID(p pluginArgs) string {

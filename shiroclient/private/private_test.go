@@ -21,14 +21,15 @@ func newMockClient() (shiroclient.MockShiroClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	version, err := client.ShiroPhylum()
+	ctx := context.Background()
+	version, err := client.ShiroPhylum(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if version != "test" {
 		return nil, fmt.Errorf("expected version 'test'")
 	}
-	err = client.Init(shiroclient.EncodePhylumBytes(testPhylum))
+	err = client.Init(ctx, shiroclient.EncodePhylumBytes(testPhylum))
 	if err != nil {
 		return nil, err
 	}

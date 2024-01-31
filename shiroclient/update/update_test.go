@@ -23,7 +23,7 @@ func client(t *testing.T) shiroclient.ShiroClient {
 	t.Helper()
 	client, err := shiroclient.NewMock(nil)
 	require.NoError(t, err)
-	err = client.Init(shiroclient.EncodePhylumBytes(testPhylum))
+	err = client.Init(context.Background(), shiroclient.EncodePhylumBytes(testPhylum))
 	require.NoError(t, err)
 	return client
 }
@@ -98,7 +98,9 @@ func TestInstall(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("init-2", func(t *testing.T) {
-		err := client.Init(shiroclient.EncodePhylumBytes(testPhylum), plugin.WithNewPhylumVersion("new"), shiroclient.WithContext(ctx))
+		err := client.Init(ctx,
+			shiroclient.EncodePhylumBytes(testPhylum),
+			plugin.WithNewPhylumVersion("new"))
 		require.NoError(t, err)
 
 		phyla, err := update.GetPhyla(ctx, client)
