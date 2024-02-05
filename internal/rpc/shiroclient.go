@@ -18,7 +18,9 @@ import (
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/x/rpc"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var _ types.ShiroClient = (*rpcShiroClient)(nil)
@@ -29,6 +31,7 @@ type rpcShiroClient struct {
 	baseConfig []types.Config
 	defaultLog *logrus.Logger
 	httpClient http.Client
+	tracer     trace.Tracer
 }
 
 // rpcres is a type for a partially decoded RPC response.
@@ -462,6 +465,8 @@ func (c *rpcShiroClient) Init(ctx context.Context, phylum string, configs ...typ
 
 // Call implements the ShiroClient interface.
 func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...types.Config) (types.ShiroResponse, error) {
+	ctx, span := c.tracer.Start(ctx, "Call")
+	defer span.End()
 	opt, err := c.applyConfigs(configs...)
 	if err != nil {
 		return nil, err
@@ -565,6 +570,8 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 
 // QueryInfo implements the ShiroClient interface.
 func (c *rpcShiroClient) QueryInfo(ctx context.Context, configs ...types.Config) (uint64, error) {
+	ctx, span := c.tracer.Start(ctx, "QueryInfo")
+	defer span.End()
 	opt, err := c.applyConfigs(configs...)
 	if err != nil {
 		return 0, err
@@ -601,6 +608,8 @@ func (c *rpcShiroClient) QueryInfo(ctx context.Context, configs ...types.Config)
 
 // QueryBlock implements the ShiroClient interface.
 func (c *rpcShiroClient) QueryBlock(ctx context.Context, blockNumber uint64, configs ...types.Config) (types.Block, error) {
+	ctx, span := c.tracer.Start(ctx, "QueryBlock")
+	defer span.End()
 	opt, err := c.applyConfigs(configs...)
 	if err != nil {
 		return nil, err
@@ -760,5 +769,6 @@ func NewRPC(clientConfigs []types.Config) types.ShiroClient {
 		baseConfig: clientConfigs,
 		defaultLog: logrus.New(),
 		httpClient: http.Client{},
+		tracer:     otel.GetTracerProvider().Tracer("shiroclient-sdk-go"),
 	}
 }
