@@ -465,7 +465,7 @@ func (c *rpcShiroClient) Init(ctx context.Context, phylum string, configs ...typ
 
 // Call implements the ShiroClient interface.
 func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...types.Config) (types.ShiroResponse, error) {
-	ctx, span := c.tracer.Start(ctx, "Call")
+	ctx, span := c.tracer.Start(ctx, "sdk:Call")
 	defer span.End()
 	opt, err := c.applyConfigs(configs...)
 	if err != nil {
@@ -570,7 +570,7 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 
 // QueryInfo implements the ShiroClient interface.
 func (c *rpcShiroClient) QueryInfo(ctx context.Context, configs ...types.Config) (uint64, error) {
-	ctx, span := c.tracer.Start(ctx, "QueryInfo")
+	ctx, span := c.tracer.Start(ctx, "sdk:QueryInfo")
 	defer span.End()
 	opt, err := c.applyConfigs(configs...)
 	if err != nil {
@@ -608,7 +608,7 @@ func (c *rpcShiroClient) QueryInfo(ctx context.Context, configs ...types.Config)
 
 // QueryBlock implements the ShiroClient interface.
 func (c *rpcShiroClient) QueryBlock(ctx context.Context, blockNumber uint64, configs ...types.Config) (types.Block, error) {
-	ctx, span := c.tracer.Start(ctx, "QueryBlock")
+	ctx, span := c.tracer.Start(ctx, "sdk:QueryBlock")
 	defer span.End()
 	opt, err := c.applyConfigs(configs...)
 	if err != nil {
