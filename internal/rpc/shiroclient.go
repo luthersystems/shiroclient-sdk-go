@@ -465,7 +465,7 @@ func (c *rpcShiroClient) Init(ctx context.Context, phylum string, configs ...typ
 
 // Call implements the ShiroClient interface.
 func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...types.Config) (types.ShiroResponse, error) {
-	ctx, span := c.tracer.Start(ctx, "sdk:Call")
+	ctx, span := c.tracer.Start(ctx, "sdk:Call "+method)
 	defer span.End()
 	opt, err := c.applyConfigs(configs...)
 	if err != nil {
