@@ -528,6 +528,10 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 		req["params"].(map[string]interface{})["creator_msp_id"] = opt.Creator
 	}
 
+	if len(opt.TargetEndpoints) > 0 {
+		req["params"].(map[string]interface{})["target_endpoints"] = opt.TargetEndpoints
+	}
+
 	res, err := c.reqres(ctx, req, opt)
 	if err != nil {
 		return nil, err

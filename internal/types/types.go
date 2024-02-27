@@ -109,6 +109,7 @@ type RequestOptions struct {
 	Target              *interface{}
 	TimestampGenerator  func(context.Context) string
 	MspFilter           []string
+	TargetEndpoints     []string
 	MinEndorsers        int
 	Creator             string
 	DependentTxID       string

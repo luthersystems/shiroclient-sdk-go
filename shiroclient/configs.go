@@ -123,6 +123,14 @@ func WithMSPFilter(mspFilter []string) Config {
 	})
 }
 
+// WithTargetEndpoints allows specifying which exact peers will be used
+// to process the transaction. Specifcy a name or URL of the peer.
+func WithTargetEndpoints(nameOrURL []string) Config {
+	return types.Opt(func(r *types.RequestOptions) {
+		r.TargetEndpoints = append([]string(nil), nameOrURL...)
+	})
+}
+
 // WithMinEndorsers allows specifying the minimum number of endorsing
 // peers. Has no effect in mock mode.
 func WithMinEndorsers(minEndorsers int) Config {
