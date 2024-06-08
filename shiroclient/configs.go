@@ -131,6 +131,14 @@ func WithTargetEndpoints(nameOrURL []string) Config {
 	})
 }
 
+// WithoutTargetEndpoints allows specifying which exact peers will not
+// be used to process the transaction. Specifcy a name or URL of the peer.
+func WithoutTargetEndpoints(nameOrURL []string) Config {
+	return types.Opt(func(r *types.RequestOptions) {
+		r.NotTargetEndpoints = append([]string(nil), nameOrURL...)
+	})
+}
+
 // WithMinEndorsers allows specifying the minimum number of endorsing
 // peers. Has no effect in mock mode.
 func WithMinEndorsers(minEndorsers int) Config {

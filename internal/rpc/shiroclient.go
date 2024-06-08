@@ -28,27 +28,27 @@ var _ types.ShiroClient = (*rpcShiroClient)(nil)
 var tracePropagator = propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
 
 type rpcShiroClient struct {
-	baseConfig []types.Config
+	tracer     trace.Tracer
 	defaultLog *logrus.Logger
 	httpClient http.Client
-	tracer     trace.Tracer
+	baseConfig []types.Config
 }
 
 // rpcres is a type for a partially decoded RPC response.
 type rpcres struct {
-	errorLevel int
 	result     interface{}
 	code       interface{}
 	message    interface{}
 	data       interface{}
 	txID       string
+	errorLevel int
 }
 
 // scError wraps errors from shiroclient.
 type scError struct {
+	err     error
 	message string
 	code    int
-	err     error
 }
 
 // Unwrap implements the Wrapper interface from the errors package.
@@ -89,8 +89,8 @@ func (r *rpcres) getShiroClientError() error {
 
 func (c *rpcShiroClient) doRequest(ctx context.Context, httpClient *http.Client, httpReq *http.Request, log *logrus.Logger) ([]byte, error) {
 	type result struct {
-		msg []byte
 		err error
+		msg []byte
 	}
 	resultCh := make(chan result, 1)
 
@@ -107,7 +107,7 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpClient *http.Client,
 			// On error, any Response can be ignored. A non-nil Response with a
 			// non-nil error only occurs when CheckRedirect fails, and even then
 			// the returned Response.Body is already closed.
-			resultCh <- result{nil, err}
+			resultCh <- result{err, nil}
 			return
 		}
 
@@ -130,9 +130,9 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpClient *http.Client,
 		}
 
 		if err != nil {
-			resultCh <- result{nil, err}
+			resultCh <- result{err, nil}
 		} else {
-			resultCh <- result{msg, nil}
+			resultCh <- result{nil, msg}
 		}
 	}()
 
@@ -353,8 +353,8 @@ func urlQueryAppend(u *url.URL, vals url.Values) {
 	// may already contain a query string.  Attempting to parse the query can
 	// be a lossy conversion in the case of malformed input.
 	paramStr := vals.Encode()
-	switch {
-	case u.RawQuery == "":
+	switch u.RawQuery {
+	case "":
 		u.RawQuery = paramStr
 	default:
 		u.RawQuery += "&" + paramStr
@@ -530,6 +530,10 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 
 	if len(opt.TargetEndpoints) > 0 {
 		req["params"].(map[string]interface{})["target_endpoints"] = opt.TargetEndpoints
+	}
+
+	if len(opt.NotTargetEndpoints) > 0 {
+		req["params"].(map[string]interface{})["not_target_endpoints"] = opt.NotTargetEndpoints
 	}
 
 	res, err := c.reqres(ctx, req, opt)
