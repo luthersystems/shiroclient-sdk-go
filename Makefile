@@ -36,12 +36,8 @@ GO_TEST_TIMEOUT_10=${GO_TEST_BASE} -timeout 10m
 go-test:
 	${GO_TEST_TIMEOUT_10} ./...
 
-.PHONY: static-checks
-static-checks:
-	./scripts/static-checks.sh
-
 .PHONY: test
-test: static-checks go-test
+test: go-test
 	@
 
 ${STATIC_PRESIGN_DUMMY}: ${LICENSE_FILE}

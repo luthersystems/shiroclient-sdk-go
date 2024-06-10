@@ -97,28 +97,29 @@ func ApplyConfigs(log *logrus.Logger, configs ...Config) *RequestOptions {
 // the With* functions. There is no need for a consumer of this
 // library to directly manipulate objects of this type.
 type RequestOptions struct {
-	HTTPClient          *http.Client
+	Params              interface{}
+	Target              *interface{}
 	Log                 *logrus.Logger
 	LogFields           logrus.Fields
 	Headers             map[string]string
-	Endpoint            string
-	ID                  string
-	AuthToken           string
-	Params              interface{}
-	Transient           map[string][]byte
-	Target              *interface{}
+	CcFetchURLProxy     *url.URL
+	HTTPClient          *http.Client
 	TimestampGenerator  func(context.Context) string
-	MspFilter           []string
-	TargetEndpoints     []string
-	MinEndorsers        int
+	Transient           map[string][]byte
+	ID                  string
+	Endpoint            string
+	NewPhylumVersion    string
+	PhylumVersion       string
+	DependentBlock      string
+	AuthToken           string
 	Creator             string
 	DependentTxID       string
+	NotTargetEndpoints  []string
+	TargetEndpoints     []string
+	MspFilter           []string
+	MinEndorsers        int
 	DisableWritePolling bool
 	CcFetchURLDowngrade bool
-	CcFetchURLProxy     *url.URL
-	DependentBlock      string
-	PhylumVersion       string
-	NewPhylumVersion    string
 }
 
 // ShiroResponse is a wrapper for a response from a shiro
@@ -151,16 +152,17 @@ type Error interface {
 func NewFailureResponse(code int, message string, data []byte) *failureResponse {
 	return &failureResponse{
 		err: failureError{
-			code: code, message: message, data: data},
+			code: code, message: message, data: data,
+		},
 	}
 }
 
 var _ ShiroResponse = (*failureResponse)(nil)
 
 type failureError struct {
-	code    int
 	message string
 	data    []byte
+	code    int
 }
 
 func (s *failureError) Code() int {
@@ -204,8 +206,8 @@ func (s *failureResponse) Error() Error {
 var _ ShiroResponse = (*successResponse)(nil)
 
 type successResponse struct {
-	result []byte
 	txID   string
+	result []byte
 }
 
 func NewSuccessResponse(result []byte, txID string) *successResponse {
@@ -247,8 +249,8 @@ func NewTransaction(id string, reason string, event []byte, ccID string) *transa
 type transaction struct {
 	id     string
 	reason string
-	event  []byte
 	ccID   string
+	event  []byte
 }
 
 func (t *transaction) ID() string {
