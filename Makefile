@@ -8,6 +8,11 @@
 PROJECT_REL_DIR=.
 include ${PROJECT_REL_DIR}/common.mk
 
+SUBSTRATEHCP_FILE ?= ${PWD}/${SUBSTRATE_PLUGIN_PLATFORM_TARGETED}
+
+export SUBSTRATEHCP_FILE
+
+
 .DEFAULT_GOAL := default
 .PHONY: default
 default: all
@@ -29,7 +34,7 @@ plugin-darwin: ${SUBSTRATE_PLUGIN_DARWIN}
 citest: plugin test
 	@
 
-GO_TEST_BASE=${GO_HOST_EXTRA_ENV} SUBSTRATEHCP_FILE=${PWD}/${SUBSTRATE_PLUGIN_PLATFORM_TARGETED} go test ${GO_TEST_FLAGS}
+GO_TEST_BASE=${GO_HOST_EXTRA_ENV} go test ${GO_TEST_FLAGS}
 GO_TEST_TIMEOUT_10=${GO_TEST_BASE} -timeout 10m
 
 .PHONY: go-test
@@ -40,15 +45,7 @@ go-test:
 test: go-test
 	@
 
-${STATIC_PRESIGN_DUMMY}: ${LICENSE_FILE}
-	${MKDIR_P} $(dir $@)
-	./scripts/obtain-presigned.sh
-	touch $@
-
-${PRESIGNED_PATH}: ${STATIC_PRESIGN_DUMMY}
-	@
-
-${STATIC_PLUGINS_DUMMY}: ${PRESIGNED_PATH}
+${STATIC_PLUGINS_DUMMY}:
 	${MKDIR_P} $(dir $@)
 	./scripts/obtain-plugin.sh
 	touch $@

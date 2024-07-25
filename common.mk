@@ -17,12 +17,19 @@ PROJECT_ABS_DIR=$(abspath ${PROJECT_REL_DIR})
 include ${PROJECT_REL_DIR}/common.config.mk
 
 PROJECT_PATH=$(shell awk '$$1 == "module" {print $$2};' ${PROJECT_REL_DIR}/go.mod)
-LICENSE_FILE_ROOT=${DOCKER_PROJECT_DIR}/.luther-license.yaml
-LICENSE_FILE=${PROJECT_ABS_DIR}/.luther-license.yaml
-PRESIGNED_PATH=${PROJECT_REL_DIR}/build/presigned.json
 
 UNAME := $(shell uname)
-SUBSTRATE_PLUGIN_OS=${PROJECT_REL_DIR}/build/substratehcp-$(1)-amd64-${SUBSTRATE_VERSION}
+ARCH :=  $(shell uname -m)
+
+ifeq ($(ARCH),x86_64)
+  ARCH_SUFFIX := amd64
+else ifeq ($(ARCH),aarch64)
+  ARCH_SUFFIX := arm64
+else
+  ARCH_SUFFIX := $(ARCH)
+endif
+
+SUBSTRATE_PLUGIN_OS=${PROJECT_REL_DIR}/build/substratehcp-$(1)-${ARCH_SUFFIX}-${SUBSTRATE_VERSION}
 SUBSTRATE_PLUGIN_LINUX=$(call SUBSTRATE_PLUGIN_OS,linux)
 SUBSTRATE_PLUGIN_DARWIN=$(call SUBSTRATE_PLUGIN_OS,darwin)
 SUBSTRATE_PLUGIN=${SUBSTRATE_PLUGIN_DARWIN} ${SUBSTRATE_PLUGIN_LINUX}
