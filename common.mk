@@ -1,4 +1,4 @@
-# Copyright © 2021 Luther Systems, Ltd. All right reserved.
+# Copyright © 2024 Luther Systems, Ltd. All right reserved.
 
 # common.mk
 #
@@ -72,9 +72,6 @@ DUMMY_TARGET=build/$(1)/$(2)/.dummy
 IMAGE_DUMMY=$(call DUMMY_TARGET,image,$(1))
 PUSH_DUMMY=$(call DUMMY_TARGET,push,$(1))
 PLUGIN_DUMMY=$(call DUMMY_TARGET,plugin,$(1))
-PRESIGN_DUMMY=$(call DUMMY_TARGET,presign,$(1))
-STATIC_PLUGINS_DUMMY=$(call PLUGIN_DUMMY,${SUBSTRATE_VERSION})
-STATIC_PRESIGN_DUMMY=$(abspath ${PROJECT_REL_DIR}/$(call PRESIGN_DUMMY,${SUBSTRATE_VERSION}))
 
 GIT_LS_FILES=$(shell git ls-files $(1))
 
