@@ -1,4 +1,4 @@
-# Copyright © 2021 Luther Systems, Ltd. All right reserved.
+# Copyright © 2024 Luther Systems, Ltd. All right reserved.
 
 # common.mk
 #
@@ -17,12 +17,19 @@ PROJECT_ABS_DIR=$(abspath ${PROJECT_REL_DIR})
 include ${PROJECT_REL_DIR}/common.config.mk
 
 PROJECT_PATH=$(shell awk '$$1 == "module" {print $$2};' ${PROJECT_REL_DIR}/go.mod)
-LICENSE_FILE_ROOT=${DOCKER_PROJECT_DIR}/.luther-license.yaml
-LICENSE_FILE=${PROJECT_ABS_DIR}/.luther-license.yaml
-PRESIGNED_PATH=${PROJECT_REL_DIR}/build/presigned.json
 
 UNAME := $(shell uname)
-SUBSTRATE_PLUGIN_OS=${PROJECT_REL_DIR}/build/substratehcp-$(1)-amd64-${SUBSTRATE_VERSION}
+ARCH :=  $(shell uname -m)
+
+ifeq ($(ARCH),x86_64)
+  ARCH_SUFFIX := amd64
+else ifeq ($(ARCH),aarch64)
+  ARCH_SUFFIX := arm64
+else
+  ARCH_SUFFIX := $(ARCH)
+endif
+
+SUBSTRATE_PLUGIN_OS=${PROJECT_REL_DIR}/build/substratehcp-$(1)-${ARCH_SUFFIX}-${SUBSTRATE_VERSION}
 SUBSTRATE_PLUGIN_LINUX=$(call SUBSTRATE_PLUGIN_OS,linux)
 SUBSTRATE_PLUGIN_DARWIN=$(call SUBSTRATE_PLUGIN_OS,darwin)
 SUBSTRATE_PLUGIN=${SUBSTRATE_PLUGIN_DARWIN} ${SUBSTRATE_PLUGIN_LINUX}
@@ -65,9 +72,7 @@ DUMMY_TARGET=build/$(1)/$(2)/.dummy
 IMAGE_DUMMY=$(call DUMMY_TARGET,image,$(1))
 PUSH_DUMMY=$(call DUMMY_TARGET,push,$(1))
 PLUGIN_DUMMY=$(call DUMMY_TARGET,plugin,$(1))
-PRESIGN_DUMMY=$(call DUMMY_TARGET,presign,$(1))
 STATIC_PLUGINS_DUMMY=$(call PLUGIN_DUMMY,${SUBSTRATE_VERSION})
-STATIC_PRESIGN_DUMMY=$(abspath ${PROJECT_REL_DIR}/$(call PRESIGN_DUMMY,${SUBSTRATE_VERSION}))
 
 GIT_LS_FILES=$(shell git ls-files $(1))
 
