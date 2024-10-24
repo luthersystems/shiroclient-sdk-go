@@ -129,6 +129,8 @@ type ShiroResponse interface {
 	UnmarshalTo(dst interface{}) error
 	ResultJSON() []byte
 	TransactionID() string
+	MaxSimBlockNum() string
+	CommitBlockNum() string
 	Error() Error
 }
 
@@ -199,6 +201,14 @@ func (s *failureResponse) TransactionID() string {
 	return ""
 }
 
+func (s *failureResponse) MaxSimBlockNum() string {
+	return ""
+}
+
+func (s *failureResponse) CommitBlockNum() string {
+	return ""
+}
+
 func (s *failureResponse) Error() Error {
 	return &s.err
 }
@@ -206,12 +216,19 @@ func (s *failureResponse) Error() Error {
 var _ ShiroResponse = (*successResponse)(nil)
 
 type successResponse struct {
-	txID   string
-	result []byte
+	txID        string
+	comBlockNum string
+	simBlockNum string
+	result      []byte
 }
 
-func NewSuccessResponse(result []byte, txID string) *successResponse {
-	return &successResponse{result: result, txID: txID}
+func NewSuccessResponse(result []byte, txID string, comBlockNum string, simBlockNum string) *successResponse {
+	return &successResponse{
+		result:      result,
+		txID:        txID,
+		comBlockNum: comBlockNum,
+		simBlockNum: simBlockNum,
+	}
 }
 
 func (s *successResponse) UnmarshalTo(dst interface{}) error {
@@ -230,6 +247,14 @@ func (s *successResponse) TransactionID() string {
 
 func (s *successResponse) Error() Error {
 	return nil
+}
+
+func (s *successResponse) MaxSimBlockNum() string {
+	return s.simBlockNum
+}
+
+func (s *successResponse) CommitBlockNum() string {
+	return s.comBlockNum
 }
 
 // Transaction is a wrapper for summary information about a transaction.

@@ -584,7 +584,7 @@ func Connect(user func(Substrate) error, opts ...ConnectOption) error {
 
 // NewSuccessResponse is used by the plugin to return success ShiroResponse.
 func NewSuccessResponse(result []byte, txID string) types.ShiroResponse {
-	return types.NewSuccessResponse(result, txID)
+	return types.NewSuccessResponse(result, txID, "", "")
 }
 
 // NewFailureResponse is used by the plugin to return failure ShiroResponse.

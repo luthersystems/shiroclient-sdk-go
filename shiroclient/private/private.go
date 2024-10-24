@@ -388,7 +388,27 @@ func ProfileToDSID(ctx context.Context, client shiroclient.ShiroClient, profile 
 // CallResult is returned from wrapped calls and contains additional data
 // relating to the response.
 type CallResult struct {
-	TransactionID string
+	TransactionID  string
+	maxSimBlockNum string
+	commitBlockNum string
+}
+
+// MaxSimBlockNum returns the maximum block number used to simulate the tx
+// for the wrapped Call function.
+func (s *CallResult) MaxSimBlockNum() string {
+	if s == nil {
+		return ""
+	}
+	return s.maxSimBlockNum
+}
+
+// CommitBlockNum returns the block number used to commit the tx, or
+// empty string if not available.
+func (s *CallResult) CommitBlockNum() string {
+	if s == nil {
+		return ""
+	}
+	return s.commitBlockNum
 }
 
 // CallFunc is the function signature returned for wrapped calls
@@ -443,7 +463,9 @@ func WrapCall(client shiroclient.ShiroClient, method string, encTransforms ...*T
 			return nil, fmt.Errorf("wrap decode error: %w", err)
 		}
 		return &CallResult{
-			TransactionID: resp.TransactionID(),
+			TransactionID:  resp.TransactionID(),
+			maxSimBlockNum: resp.MaxSimBlockNum(),
+			commitBlockNum: resp.CommitBlockNum(),
 		}, nil
 	}
 }

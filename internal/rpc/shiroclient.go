@@ -36,12 +36,14 @@ type rpcShiroClient struct {
 
 // rpcres is a type for a partially decoded RPC response.
 type rpcres struct {
-	result     interface{}
-	code       interface{}
-	message    interface{}
-	data       interface{}
-	txID       string
-	errorLevel int
+	result      interface{}
+	code        interface{}
+	message     interface{}
+	data        interface{}
+	txID        string
+	comBlockNum string
+	simBlockNum string
+	errorLevel  int
 }
 
 // scError wraps errors from shiroclient.
@@ -272,13 +274,19 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 	// $transaction_id appears on some requests
 	txID, _ := resCurly["$commit_tx_id"].(string)
 
+	comBlockNum, _ := resCurly["$com_block_num"].(string)
+
+	simBlockNum, _ := resCurly["$sim_block_num"].(string)
+
 	return &rpcres{
-		errorLevel: int(errorLevel),
-		result:     result,
-		code:       code,
-		message:    message,
-		data:       data,
-		txID:       txID,
+		errorLevel:  int(errorLevel),
+		result:      result,
+		code:        code,
+		message:     message,
+		data:        data,
+		txID:        txID,
+		comBlockNum: comBlockNum,
+		simBlockNum: simBlockNum,
 	}, nil
 }
 
@@ -548,7 +556,7 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 			return nil, err
 		}
 
-		return types.NewSuccessResponse(resultJSON, res.txID), nil
+		return types.NewSuccessResponse(resultJSON, res.txID, res.comBlockNum, res.simBlockNum), nil
 
 	case rpc.ErrorLevelShiroClient:
 		return nil, res.getShiroClientError()
