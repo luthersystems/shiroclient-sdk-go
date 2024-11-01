@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/x/rpc"
@@ -164,6 +165,23 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpClient *http.Client,
 	}
 }
 
+func convertToUint64(value interface{}) (uint64, error) {
+	switch v := value.(type) {
+	case float64:
+		return uint64(v), nil
+	case int:
+		return uint64(v), nil
+	case int64:
+		return uint64(v), nil
+	case uint64:
+		return v, nil
+	case string:
+		return strconv.ParseUint(v, 10, 64)
+	default:
+		return 0, fmt.Errorf("unsupported type: %T", v)
+	}
+}
+
 // reqres is a round-trip "request/response" helper. Marshals "req",
 // logs it at debug level, makes the HTTP request, reads and logs the
 // response at debug level, unmarshals, parses into rpcres.
@@ -274,9 +292,9 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 	// $transaction_id appears on some requests
 	txID, _ := resCurly["$commit_tx_id"].(string)
 
-	comBlockNum, _ := resCurly["$com_block_num"].(uint64)
+	comBlockNum, _ := convertToUint64(resCurly["$com_block_num"])
 
-	simBlockNum, _ := resCurly["$sim_block_num"].(uint64)
+	simBlockNum, _ := convertToUint64(resCurly["$sim_block_num"])
 
 	return &rpcres{
 		errorLevel:  int(errorLevel),
