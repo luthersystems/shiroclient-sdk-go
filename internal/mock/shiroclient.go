@@ -116,7 +116,7 @@ func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...ty
 		return types.NewFailureResponse(resp.ErrorCode, resp.ErrorMessage, resp.ErrorJSON), nil
 	}
 
-	return types.NewSuccessResponse(resp.ResultJSON, resp.TransactionID, "", ""), nil
+	return types.NewSuccessResponse(resp.ResultJSON, resp.TransactionID, 0, 0), nil
 }
 
 // QueryInfo implements the ShiroClient interface.

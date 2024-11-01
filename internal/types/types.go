@@ -130,8 +130,8 @@ type ShiroResponse interface {
 	UnmarshalTo(dst interface{}) error
 	ResultJSON() []byte
 	TransactionID() string
-	MaxSimBlockNum() string
-	CommitBlockNum() string
+	MaxSimBlockNum() uint64
+	CommitBlockNum() uint64
 	Error() Error
 }
 
@@ -202,12 +202,12 @@ func (s *failureResponse) TransactionID() string {
 	return ""
 }
 
-func (s *failureResponse) MaxSimBlockNum() string {
-	return ""
+func (s *failureResponse) MaxSimBlockNum() uint64 {
+	return 0
 }
 
-func (s *failureResponse) CommitBlockNum() string {
-	return ""
+func (s *failureResponse) CommitBlockNum() uint64 {
+	return 0
 }
 
 func (s *failureResponse) Error() Error {
@@ -218,12 +218,12 @@ var _ ShiroResponse = (*successResponse)(nil)
 
 type successResponse struct {
 	txID        string
-	comBlockNum string
-	simBlockNum string
+	comBlockNum uint64
+	simBlockNum uint64
 	result      []byte
 }
 
-func NewSuccessResponse(result []byte, txID string, comBlockNum string, simBlockNum string) *successResponse {
+func NewSuccessResponse(result []byte, txID string, comBlockNum uint64, simBlockNum uint64) *successResponse {
 	return &successResponse{
 		result:      result,
 		txID:        txID,
@@ -250,11 +250,11 @@ func (s *successResponse) Error() Error {
 	return nil
 }
 
-func (s *successResponse) MaxSimBlockNum() string {
+func (s *successResponse) MaxSimBlockNum() uint64 {
 	return s.simBlockNum
 }
 
-func (s *successResponse) CommitBlockNum() string {
+func (s *successResponse) CommitBlockNum() uint64 {
 	return s.comBlockNum
 }
 

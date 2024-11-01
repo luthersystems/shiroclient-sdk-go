@@ -41,8 +41,8 @@ type rpcres struct {
 	message     interface{}
 	data        interface{}
 	txID        string
-	comBlockNum string
-	simBlockNum string
+	comBlockNum uint64
+	simBlockNum uint64
 	errorLevel  int
 }
 
@@ -274,9 +274,9 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 	// $transaction_id appears on some requests
 	txID, _ := resCurly["$commit_tx_id"].(string)
 
-	comBlockNum, _ := resCurly["$com_block_num"].(string)
+	comBlockNum, _ := resCurly["$com_block_num"].(uint64)
 
-	simBlockNum, _ := resCurly["$sim_block_num"].(string)
+	simBlockNum, _ := resCurly["$sim_block_num"].(uint64)
 
 	return &rpcres{
 		errorLevel:  int(errorLevel),
