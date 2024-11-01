@@ -389,24 +389,24 @@ func ProfileToDSID(ctx context.Context, client shiroclient.ShiroClient, profile 
 // relating to the response.
 type CallResult struct {
 	TransactionID  string
-	maxSimBlockNum string
-	commitBlockNum string
+	maxSimBlockNum uint64
+	commitBlockNum uint64
 }
 
 // MaxSimBlockNum returns the maximum block number used to simulate the tx
 // for the wrapped Call function.
-func (s *CallResult) MaxSimBlockNum() string {
+func (s *CallResult) MaxSimBlockNum() uint64 {
 	if s == nil {
-		return ""
+		return 0
 	}
 	return s.maxSimBlockNum
 }
 
 // CommitBlockNum returns the block number used to commit the tx, or
 // empty string if not available.
-func (s *CallResult) CommitBlockNum() string {
+func (s *CallResult) CommitBlockNum() uint64 {
 	if s == nil {
-		return ""
+		return 0
 	}
 	return s.commitBlockNum
 }
