@@ -209,3 +209,10 @@ func WithPhylumVersion(phylumVersion string) Config {
 		r.PhylumVersion = phylumVersion
 	})
 }
+
+// WithResponseReceiver allows retrieving the shiro response directly.
+func WithResponseReceiver(get func(resp ShiroResponse)) Config {
+	return types.Opt(func(r *types.RequestOptions) {
+		r.ResponseReceiver = get
+	})
+}

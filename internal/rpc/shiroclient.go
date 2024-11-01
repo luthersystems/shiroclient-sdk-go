@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/x/rpc"
@@ -36,12 +37,14 @@ type rpcShiroClient struct {
 
 // rpcres is a type for a partially decoded RPC response.
 type rpcres struct {
-	result     interface{}
-	code       interface{}
-	message    interface{}
-	data       interface{}
-	txID       string
-	errorLevel int
+	result      interface{}
+	code        interface{}
+	message     interface{}
+	data        interface{}
+	txID        string
+	comBlockNum uint64
+	simBlockNum uint64
+	errorLevel  int
 }
 
 // scError wraps errors from shiroclient.
@@ -162,6 +165,23 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpClient *http.Client,
 	}
 }
 
+func convertToUint64(value interface{}) (uint64, error) {
+	switch v := value.(type) {
+	case float64:
+		return uint64(v), nil
+	case int:
+		return uint64(v), nil
+	case int64:
+		return uint64(v), nil
+	case uint64:
+		return v, nil
+	case string:
+		return strconv.ParseUint(v, 10, 64)
+	default:
+		return 0, fmt.Errorf("unsupported type: %T", v)
+	}
+}
+
 // reqres is a round-trip "request/response" helper. Marshals "req",
 // logs it at debug level, makes the HTTP request, reads and logs the
 // response at debug level, unmarshals, parses into rpcres.
@@ -272,13 +292,19 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 	// $transaction_id appears on some requests
 	txID, _ := resCurly["$commit_tx_id"].(string)
 
+	comBlockNum, _ := convertToUint64(resCurly["$com_block_num"])
+
+	simBlockNum, _ := convertToUint64(resCurly["$sim_block_num"])
+
 	return &rpcres{
-		errorLevel: int(errorLevel),
-		result:     result,
-		code:       code,
-		message:    message,
-		data:       data,
-		txID:       txID,
+		errorLevel:  int(errorLevel),
+		result:      result,
+		code:        code,
+		message:     message,
+		data:        data,
+		txID:        txID,
+		comBlockNum: comBlockNum,
+		simBlockNum: simBlockNum,
 	}, nil
 }
 
@@ -453,6 +479,12 @@ func (c *rpcShiroClient) Init(ctx context.Context, phylum string, configs ...typ
 
 	switch res.errorLevel {
 	case rpc.ErrorLevelNoError:
+		resultJSON, _ := json.Marshal(res.result)
+		res := types.NewSuccessResponse(resultJSON, res.txID, res.comBlockNum, res.simBlockNum)
+		if opt.ResponseReceiver != nil {
+			opt.ResponseReceiver(res)
+		}
+
 		return nil
 
 	case rpc.ErrorLevelShiroClient:
@@ -548,7 +580,12 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 			return nil, err
 		}
 
-		return types.NewSuccessResponse(resultJSON, res.txID), nil
+		res := types.NewSuccessResponse(resultJSON, res.txID, res.comBlockNum, res.simBlockNum)
+		if opt.ResponseReceiver != nil {
+			opt.ResponseReceiver(res)
+		}
+
+		return res, nil
 
 	case rpc.ErrorLevelShiroClient:
 		return nil, res.getShiroClientError()
@@ -569,7 +606,13 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 			return nil, errors.New("ShiroClient.Call expected a string message field")
 		}
 
-		return types.NewFailureResponse(int(code), message, dataJSON), nil
+		res := types.NewFailureResponse(int(code), message, dataJSON)
+
+		if opt.ResponseReceiver != nil {
+			opt.ResponseReceiver(res)
+		}
+
+		return res, nil
 
 	default:
 		return nil, fmt.Errorf("ShiroClient.Call unexpected error level %d", res.errorLevel)

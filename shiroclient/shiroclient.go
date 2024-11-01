@@ -47,12 +47,11 @@ type HealthCheck = rpc.HealthCheck
 // service should only be considered operational if its reported status is
 // "UP".  Any other status indicates a potential service interruption.
 //
-// 		for _, report := range healthcheck {
-//			if report.Status != "UP" {
-//				ringAlarm(report)
-//			}
+//	for _, report := range healthcheck {
+//		if report.Status != "UP" {
+//			ringAlarm(report)
 //		}
-//
+//	}
 type HealthCheckReport = rpc.HealthCheckReport
 
 // IsTimeoutError inspects an error returned from shiroclient and returns true
@@ -93,10 +92,12 @@ func UnmarshalProto(src []byte, dst interface{}) error {
 //
 // For clients that support RemoteHealthCheck service enumeration, like those
 // created with NewRPC, services should be specified using canonical names
-//		phylum
-//		shiroclient_gateway
-//		fabric_peer
-//		...
+//
+//	phylum
+//	shiroclient_gateway
+//	fabric_peer
+//	...
+//
 // Unrecognized service names are ignored, though may still be sent to upstream
 // gateways.
 //

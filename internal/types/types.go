@@ -120,6 +120,7 @@ type RequestOptions struct {
 	MinEndorsers        int
 	DisableWritePolling bool
 	CcFetchURLDowngrade bool
+	ResponseReceiver    func(ShiroResponse)
 }
 
 // ShiroResponse is a wrapper for a response from a shiro
@@ -129,6 +130,8 @@ type ShiroResponse interface {
 	UnmarshalTo(dst interface{}) error
 	ResultJSON() []byte
 	TransactionID() string
+	MaxSimBlockNum() uint64
+	CommitBlockNum() uint64
 	Error() Error
 }
 
@@ -199,6 +202,14 @@ func (s *failureResponse) TransactionID() string {
 	return ""
 }
 
+func (s *failureResponse) MaxSimBlockNum() uint64 {
+	return 0
+}
+
+func (s *failureResponse) CommitBlockNum() uint64 {
+	return 0
+}
+
 func (s *failureResponse) Error() Error {
 	return &s.err
 }
@@ -206,12 +217,19 @@ func (s *failureResponse) Error() Error {
 var _ ShiroResponse = (*successResponse)(nil)
 
 type successResponse struct {
-	txID   string
-	result []byte
+	txID        string
+	comBlockNum uint64
+	simBlockNum uint64
+	result      []byte
 }
 
-func NewSuccessResponse(result []byte, txID string) *successResponse {
-	return &successResponse{result: result, txID: txID}
+func NewSuccessResponse(result []byte, txID string, comBlockNum uint64, simBlockNum uint64) *successResponse {
+	return &successResponse{
+		result:      result,
+		txID:        txID,
+		comBlockNum: comBlockNum,
+		simBlockNum: simBlockNum,
+	}
 }
 
 func (s *successResponse) UnmarshalTo(dst interface{}) error {
@@ -230,6 +248,14 @@ func (s *successResponse) TransactionID() string {
 
 func (s *successResponse) Error() Error {
 	return nil
+}
+
+func (s *successResponse) MaxSimBlockNum() uint64 {
+	return s.simBlockNum
+}
+
+func (s *successResponse) CommitBlockNum() uint64 {
+	return s.comBlockNum
 }
 
 // Transaction is a wrapper for summary information about a transaction.
