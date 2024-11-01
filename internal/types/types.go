@@ -120,6 +120,7 @@ type RequestOptions struct {
 	MinEndorsers        int
 	DisableWritePolling bool
 	CcFetchURLDowngrade bool
+	ResponseReceiver    func(ShiroResponse)
 }
 
 // ShiroResponse is a wrapper for a response from a shiro

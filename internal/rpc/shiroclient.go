@@ -461,6 +461,12 @@ func (c *rpcShiroClient) Init(ctx context.Context, phylum string, configs ...typ
 
 	switch res.errorLevel {
 	case rpc.ErrorLevelNoError:
+		resultJSON, _ := json.Marshal(res.result)
+		res := types.NewSuccessResponse(resultJSON, res.txID, res.comBlockNum, res.simBlockNum)
+		if opt.ResponseReceiver != nil {
+			opt.ResponseReceiver(res)
+		}
+
 		return nil
 
 	case rpc.ErrorLevelShiroClient:
@@ -556,7 +562,12 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 			return nil, err
 		}
 
-		return types.NewSuccessResponse(resultJSON, res.txID, res.comBlockNum, res.simBlockNum), nil
+		res := types.NewSuccessResponse(resultJSON, res.txID, res.comBlockNum, res.simBlockNum)
+		if opt.ResponseReceiver != nil {
+			opt.ResponseReceiver(res)
+		}
+
+		return res, nil
 
 	case rpc.ErrorLevelShiroClient:
 		return nil, res.getShiroClientError()
@@ -577,7 +588,13 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 			return nil, errors.New("ShiroClient.Call expected a string message field")
 		}
 
-		return types.NewFailureResponse(int(code), message, dataJSON), nil
+		res := types.NewFailureResponse(int(code), message, dataJSON)
+
+		if opt.ResponseReceiver != nil {
+			opt.ResponseReceiver(res)
+		}
+
+		return res, nil
 
 	default:
 		return nil, fmt.Errorf("ShiroClient.Call unexpected error level %d", res.errorLevel)
