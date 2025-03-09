@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 // Config is an alias (not a distinct type)
@@ -247,4 +248,33 @@ func Call[K proto.Message, R proto.Message](s *Client, ctx context.Context, meth
 		return empty, err
 	}
 	return resp, nil
+}
+
+// BootstrapProperty is the property name used to bootstrap the phylum.
+const BootstrapProperty = "bootstrap-cfg"
+
+// SetAppControlProperty sets an application control property on the phylum.
+// It encodes the provided value and calls the underlying "set_app_control_property" RPC.
+// It returns an error if the call fails.
+func (c *Client) SetAppControlProperty(ctx context.Context, name string, value string, configs ...shiroclient.Config) error {
+	encodedValue := shiroclient.EncodePhylumBytes([]byte(value))
+	params := []interface{}{name, encodedValue}
+	// Call the underlying method using sdkCall. We don't expect any response, so rep is nil.
+	if err := c.sdkCall(ctx, "set_app_control_property", params, nil, configs); err != nil {
+		return fmt.Errorf("failed to set app control property %q: %w", name, err)
+	}
+	return nil
+}
+
+// GetAppControlProperty retrieves an application control property from the phylum.
+// It sends the property name and expects a response containing a string value wrapped
+// in a wrapperspb.StringValue. Returns the property value or an error.
+func (c *Client) GetAppControlProperty(ctx context.Context, name string, configs ...shiroclient.Config) (string, error) {
+	params := []interface{}{name}
+	// Use wrapperspb.StringValue to hold the response value.
+	response := &wrapperspb.StringValue{}
+	if err := c.sdkCall(ctx, "get_app_control_property", params, response, configs); err != nil {
+		return "", fmt.Errorf("failed to get app control property %q: %w", name, err)
+	}
+	return response.GetValue(), nil
 }
