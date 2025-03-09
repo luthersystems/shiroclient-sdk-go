@@ -3,7 +3,7 @@ package update
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
@@ -57,7 +57,7 @@ func GetPhyla(ctx context.Context, client shiroclient.ShiroClient, configs ...sh
 		return nil, err
 	}
 	if resp.Error() != nil {
-		return nil, fmt.Errorf(resp.Error().Message())
+		return nil, errors.New(resp.Error().Message())
 	}
 
 	phyla := &Phyla{}
@@ -77,7 +77,7 @@ func Enable(ctx context.Context, client shiroclient.ShiroClient, version string,
 		return err
 	}
 	if resp.Error() != nil {
-		return fmt.Errorf(resp.Error().Message())
+		return errors.New(resp.Error().Message())
 	}
 	return nil
 }
@@ -90,7 +90,7 @@ func Disable(ctx context.Context, client shiroclient.ShiroClient, version string
 		return err
 	}
 	if resp.Error() != nil {
-		return fmt.Errorf(resp.Error().Message())
+		return errors.New(resp.Error().Message())
 	}
 	return nil
 }
@@ -113,7 +113,7 @@ func Install(ctx context.Context, client shiroclient.ShiroClient, version string
 		return err
 	}
 	if resp.Error() != nil {
-		return fmt.Errorf(resp.Error().Message())
+		return errors.New(resp.Error().Message())
 	}
 	return nil
 }

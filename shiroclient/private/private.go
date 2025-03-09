@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
@@ -135,7 +136,7 @@ type EncodedResponse struct {
 // MarshalJSON implements json.Marshaler.
 func (r *EncodedResponse) MarshalJSON() ([]byte, error) {
 	if r.encodedMessage == nil && r.rawMessage == nil {
-		return nil, fmt.Errorf("empty response")
+		return nil, errors.New("empty response")
 	}
 	if r.encodedMessage == nil {
 		return json.Marshal(r.rawMessage)
@@ -258,7 +259,7 @@ func encodeHelper(ctx context.Context, client shiroclient.ShiroClient, message i
 		}
 
 		if resp.Error() != nil {
-			return nil, nil, fmt.Errorf(resp.Error().Message())
+			return nil, nil, errors.New(resp.Error().Message())
 		}
 		err = resp.UnmarshalTo(enc)
 		if err != nil {
@@ -287,12 +288,12 @@ func Encode(ctx context.Context, client shiroclient.ShiroClient, message interfa
 // no transforms, then decode unmarshals the raw message bytes into "decoded".
 func Decode(ctx context.Context, client shiroclient.ShiroClient, encoded *EncodedResponse, decoded interface{}, configs ...shiroclient.Config) error {
 	if encoded == nil {
-		return fmt.Errorf("nil encoded message")
+		return errors.New("nil encoded message")
 	}
 	if encoded.encodedMessage == nil {
 		// fast path, nothing to do.
 		if encoded.rawMessage == nil {
-			return fmt.Errorf("missing raw message")
+			return errors.New("missing raw message")
 		}
 		rawBytes, err := json.Marshal(encoded.rawMessage)
 		if err != nil {
@@ -306,7 +307,7 @@ func Decode(ctx context.Context, client shiroclient.ShiroClient, encoded *Encode
 		return err
 	}
 	if resp.Error() != nil {
-		return fmt.Errorf(resp.Error().Message())
+		return errors.New(resp.Error().Message())
 	}
 	err = resp.UnmarshalTo(decoded)
 	if err != nil {
@@ -319,7 +320,7 @@ func Decode(ctx context.Context, client shiroclient.ShiroClient, encoded *Encode
 // subject with data subject ID "dsid".
 func Export(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, configs ...shiroclient.Config) (map[string]interface{}, error) {
 	if dsid == "" {
-		return nil, fmt.Errorf("invalid empty DSID")
+		return nil, errors.New("invalid empty DSID")
 	}
 	configs = append(configs, withParam(dsid))
 	resp, err := client.Call(ctx, ShiroEndpointExport, configs...)
@@ -327,7 +328,7 @@ func Export(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, conf
 		return nil, err
 	}
 	if resp.Error() != nil {
-		return nil, fmt.Errorf(resp.Error().Message())
+		return nil, errors.New(resp.Error().Message())
 	}
 	var exported map[string]interface{}
 	err = resp.UnmarshalTo(&exported)
@@ -341,7 +342,7 @@ func Export(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, conf
 // subject with data subject ID "dsid".
 func Purge(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, configs ...shiroclient.Config) error {
 	if dsid == "" {
-		return fmt.Errorf("invalid empty DSID")
+		return errors.New("invalid empty DSID")
 	}
 	configs = append(configs, withParam(dsid))
 	seedConfig, err := WithSeed()
@@ -354,7 +355,7 @@ func Purge(ctx context.Context, client shiroclient.ShiroClient, dsid DSID, confi
 		return err
 	}
 	if resp.Error() != nil {
-		return fmt.Errorf(resp.Error().Message())
+		return errors.New(resp.Error().Message())
 	}
 	var gotDSID DSID
 	err = resp.UnmarshalTo(&gotDSID)
@@ -375,7 +376,7 @@ func ProfileToDSID(ctx context.Context, client shiroclient.ShiroClient, profile 
 		return "", err
 	}
 	if resp.Error() != nil {
-		return "", fmt.Errorf(resp.Error().Message())
+		return "", errors.New(resp.Error().Message())
 	}
 	var gotDSID DSID
 	err = resp.UnmarshalTo(&gotDSID)
