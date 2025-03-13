@@ -5,6 +5,7 @@
 package plugin
 
 import (
+	"github.com/sirupsen/logrus"
 	"io"
 	"log"
 	"net/rpc"
@@ -36,6 +37,7 @@ type ConcreteRequestOptions struct {
 	DependentBlock      string
 	PhylumVersion       string
 	NewPhylumVersion    string
+	DebugPrint          bool
 }
 
 // Error represents a possible error.
@@ -278,6 +280,14 @@ func (g *PluginRPC) Init(tag string, phylum string, options *ConcreteRequestOpti
 
 // Call forwards the call
 func (g *PluginRPC) Call(tag string, command string, options *ConcreteRequestOptions) (*Response, error) {
+
+	if options.DebugPrint {
+		logrus.WithFields(logrus.Fields{
+			"tag":     tag,
+			"command": command,
+		}).Debug("UNSAFE: plugin request")
+	}
+
 	var resp RespCall
 	err := g.client.Call("Plugin.Call", &ArgsCall{Tag: tag, Command: command, Options: options}, &resp)
 	if err != nil {
@@ -286,6 +296,13 @@ func (g *PluginRPC) Call(tag string, command string, options *ConcreteRequestOpt
 	if resp.Err != nil {
 		return nil, resp.Err
 	}
+
+	if options.DebugPrint {
+		logrus.WithFields(logrus.Fields{
+			"resp.Response.ResultJSON": resp.Response.ResultJSON,
+		}).Debug("UNSAFE: plugin response")
+	}
+
 	return resp.Response, nil
 }
 
