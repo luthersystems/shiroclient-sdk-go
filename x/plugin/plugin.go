@@ -5,7 +5,6 @@
 package plugin
 
 import (
-	"encoding/json"
 	"io"
 	"log"
 	"net/rpc"
@@ -15,8 +14,6 @@ import (
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 )
 
 // ConcreteRequestOptions is a variant of RequestOptions that is
@@ -63,11 +60,7 @@ type Response struct {
 
 // UnmarshalTo unmarshals the response's result to dst.
 func (s *Response) UnmarshalTo(dst interface{}) error {
-	message, ok := dst.(proto.Message)
-	if ok {
-		return protojson.Unmarshal([]byte(s.ResultJSON), message)
-	}
-	return json.Unmarshal([]byte(s.ResultJSON), dst)
+	return types.UnmarshalProto(s.ResultJSON, dst)
 }
 
 // Transaction represents summary information about a transaction.
