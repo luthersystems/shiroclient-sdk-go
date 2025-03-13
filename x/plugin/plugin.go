@@ -294,13 +294,18 @@ func (g *PluginRPC) Call(tag string, command string, options *ConcreteRequestOpt
 		return nil, err
 	}
 	if resp.Err != nil {
+		if options.DebugPrint {
+			logrus.WithFields(logrus.Fields{
+				"resp.Err": resp.Err.Error(),
+			}).Debug("UNSAFE: plugin response error")
+		}
 		return nil, resp.Err
 	}
 
 	if options.DebugPrint {
 		logrus.WithFields(logrus.Fields{
-			"resp.Response.ResultJSON": resp.Response.ResultJSON,
-		}).Debug("UNSAFE: plugin response")
+			"resp.Response.ResultJSON": string(resp.Response.ResultJSON),
+		}).Debug("UNSAFE: plugin response success")
 	}
 
 	return resp.Response, nil
