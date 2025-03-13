@@ -121,6 +121,7 @@ type RequestOptions struct {
 	DisableWritePolling bool
 	CcFetchURLDowngrade bool
 	ResponseReceiver    func(ShiroResponse)
+	DebugPrint          bool
 }
 
 // ShiroResponse is a wrapper for a response from a shiro

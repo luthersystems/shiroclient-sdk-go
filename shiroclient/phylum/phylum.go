@@ -171,7 +171,8 @@ func (s *Client) sdkCall(ctx context.Context, cmd string, params interface{}, re
 		// nothing to unmarshal
 		return nil
 	}
-	err = protojson.Unmarshal(resp.ResultJSON(), rep)
+
+	err = resp.UnmarshalTo(rep)
 	if err != nil {
 		s.logEntry(ctx).
 			// IMPORTANT: we cannot log this since it may contain PII.
@@ -179,6 +180,7 @@ func (s *Client) sdkCall(ctx context.Context, cmd string, params interface{}, re
 			WithError(err).Errorf("Shiro RPC result could not be decoded")
 		return err
 	}
+
 	return nil
 }
 

@@ -195,6 +195,13 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 		return nil, errors.New("ShiroClient.reqres expected an endpoint to be set")
 	}
 
+	if opt.DebugPrint {
+		logrus.WithFields(logrus.Fields{
+			"outmsg":   string(outmsg),
+			"endpoint": opt.Endpoint,
+		}).Debug("UNSAFE: reqres: POST request")
+	}
+
 	httpReq, err := http.NewRequest("POST", opt.Endpoint, bytes.NewReader(outmsg))
 	if err != nil {
 		return nil, err
@@ -212,6 +219,12 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 	msg, err := c.doRequest(ctx, opt.HTTPClient, httpReq, opt.Log)
 	if err != nil {
 		return nil, fmt.Errorf("ShiroClient.reqres: %w", err)
+	}
+
+	if opt.DebugPrint {
+		logrus.WithFields(logrus.Fields{
+			"msg": string(msg),
+		}).Debug("UNSAFE: reqres: POST response")
 	}
 
 	var target *interface{}
