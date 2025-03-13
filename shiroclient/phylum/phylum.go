@@ -100,7 +100,7 @@ func NewMock(phylumPath string, log *logrus.Entry) (*Client, error) {
 	return NewMockFrom(phylumPath, log, nil)
 }
 
-// NewMockWithConfig returns a mock phylum client initialized with a bootstrap yaml.
+// NewMockWithConfig returns a mock phylum client initialized with a optional bootstrap yaml.
 func NewMockWithConfig(phylumPath string, log *logrus.Entry, bootstrapYAMLPath string) (*Client, error) {
 	return newMockFrom(phylumPath, log, nil, bootstrapYAMLPath)
 }
