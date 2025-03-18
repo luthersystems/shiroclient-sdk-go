@@ -23,6 +23,9 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
+// BootstrapProperty is the property name used to bootstrap the phylum.
+const BootstrapProperty = "bootstrap-cfg"
+
 // Config is an alias (not a distinct type)
 type Config = shiroclient.Config
 
@@ -283,9 +286,6 @@ func Call[K proto.Message, R proto.Message](s *Client, ctx context.Context, meth
 	}
 	return resp, nil
 }
-
-// BootstrapProperty is the property name used to bootstrap the phylum.
-const BootstrapProperty = "bootstrap-cfg"
 
 // SetAppControlProperty sets an application control property on the phylum.
 // It encodes the provided value and calls the underlying "set_app_control_property" RPC.
