@@ -11,6 +11,7 @@ import (
 	"io"
 
 	healthcheck "buf.build/gen/go/luthersystems/protos/protocolbuffers/go/healthcheck/v1"
+	"github.com/luthersystems/shiroclient-sdk-go/internal/yaml2json"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/private"
@@ -19,7 +20,11 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
+
+// BootstrapProperty is the property name used to bootstrap the phylum.
+const BootstrapProperty = "bootstrap-cfg"
 
 // Config is an alias (not a distinct type)
 type Config = shiroclient.Config
@@ -98,8 +103,18 @@ func NewMock(phylumPath string, log *logrus.Entry) (*Client, error) {
 	return NewMockFrom(phylumPath, log, nil)
 }
 
+// NewMockWithConfig returns a mock phylum client initialized with a optional bootstrap yaml.
+func NewMockWithConfig(phylumPath string, log *logrus.Entry, bootstrapYAMLPath string) (*Client, error) {
+	return newMockFrom(phylumPath, log, nil, bootstrapYAMLPath)
+}
+
 // NewMockFrom returns a mock phylum client restored from a DB snapshot.
 func NewMockFrom(phylumPath string, log *logrus.Entry, r io.Reader) (*Client, error) {
+	return newMockFrom(phylumPath, log, r, "")
+}
+
+// newMockFrom returns a mock phylum client restored from a DB snapshot.
+func newMockFrom(phylumPath string, log *logrus.Entry, r io.Reader, cfgPath string) (*Client, error) {
 	clientOpts := []Config{
 		shiroclient.WithLogrusFields(log.Data),
 	}
@@ -110,17 +125,38 @@ func NewMockFrom(phylumPath string, log *logrus.Entry, r io.Reader) (*Client, er
 	if err != nil {
 		return nil, err
 	}
-	if r == nil {
-		err = mock.Init(context.Background(), shiroclient.EncodePhylumBytes([]byte(phylumPath)))
-		if err != nil {
-			return nil, err
-		}
-	}
 	client := &Client{
 		log:       log,
 		rpc:       mock,
 		closeFunc: mock.Close,
 	}
+
+	if r != nil {
+		// nothing more to do for snapshot flow, already boostrapped and initialized
+		return client, nil
+	}
+
+	ctx := context.Background()
+
+	if cfgPath != "" {
+		// IMPORTANT: set the bootstrap *before* calling init, since the
+		// user init function likely will use bootstrap data.
+		jsonCfgBytes, err := yaml2json.JSONFromYAMLFile(cfgPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert YAML to JSON: %w", err)
+		}
+
+		// Call the phylum method to apply the bootstrap configuration.
+		if err := client.SetAppControlProperty(ctx, BootstrapProperty, string(jsonCfgBytes)); err != nil {
+			return nil, fmt.Errorf("failed to apply bootstrap config: %w", err)
+		}
+	}
+
+	err = mock.Init(ctx, shiroclient.EncodePhylumBytes([]byte(phylumPath)))
+	if err != nil {
+		return nil, err
+	}
+
 	return client, nil
 }
 
@@ -170,7 +206,8 @@ func (s *Client) sdkCall(ctx context.Context, cmd string, params interface{}, re
 		// nothing to unmarshal
 		return nil
 	}
-	err = protojson.Unmarshal(resp.ResultJSON(), rep)
+
+	err = resp.UnmarshalTo(rep)
 	if err != nil {
 		s.logEntry(ctx).
 			// IMPORTANT: we cannot log this since it may contain PII.
@@ -178,6 +215,7 @@ func (s *Client) sdkCall(ctx context.Context, cmd string, params interface{}, re
 			WithError(err).Errorf("Shiro RPC result could not be decoded")
 		return err
 	}
+
 	return nil
 }
 
@@ -247,4 +285,30 @@ func Call[K proto.Message, R proto.Message](s *Client, ctx context.Context, meth
 		return empty, err
 	}
 	return resp, nil
+}
+
+// SetAppControlProperty sets an application control property on the phylum.
+// It encodes the provided value and calls the underlying "set_app_control_property" RPC.
+// It returns an error if the call fails.
+func (c *Client) SetAppControlProperty(ctx context.Context, name string, value string, configs ...shiroclient.Config) error {
+	encodedValue := shiroclient.EncodePhylumBytes([]byte(value))
+	params := []interface{}{name, encodedValue}
+	// Call the underlying method using sdkCall. We don't expect any response, so rep is nil.
+	if err := c.sdkCall(ctx, "set_app_control_property", params, nil, configs); err != nil {
+		return fmt.Errorf("failed to set app control property %q: %w", name, err)
+	}
+	return nil
+}
+
+// GetAppControlProperty retrieves an application control property from the phylum.
+// It sends the property name and expects a response containing a string value wrapped
+// in a wrapperspb.StringValue. Returns the property value or an error.
+func (c *Client) GetAppControlProperty(ctx context.Context, name string, configs ...shiroclient.Config) (string, error) {
+	params := []interface{}{name}
+	// Use wrapperspb.StringValue to hold the response value.
+	response := &wrapperspb.StringValue{}
+	if err := c.sdkCall(ctx, "get_app_control_property", params, response, configs); err != nil {
+		return "", fmt.Errorf("failed to get app control property %q: %w", name, err)
+	}
+	return response.GetValue(), nil
 }

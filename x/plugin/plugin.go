@@ -5,7 +5,7 @@
 package plugin
 
 import (
-	"encoding/json"
+	"github.com/sirupsen/logrus"
 	"io"
 	"log"
 	"net/rpc"
@@ -15,8 +15,6 @@ import (
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 )
 
 // ConcreteRequestOptions is a variant of RequestOptions that is
@@ -39,6 +37,7 @@ type ConcreteRequestOptions struct {
 	DependentBlock      string
 	PhylumVersion       string
 	NewPhylumVersion    string
+	DebugPrint          bool
 }
 
 // Error represents a possible error.
@@ -63,11 +62,7 @@ type Response struct {
 
 // UnmarshalTo unmarshals the response's result to dst.
 func (s *Response) UnmarshalTo(dst interface{}) error {
-	message, ok := dst.(proto.Message)
-	if ok {
-		return protojson.Unmarshal([]byte(s.ResultJSON), message)
-	}
-	return json.Unmarshal([]byte(s.ResultJSON), dst)
+	return types.UnmarshalProto(s.ResultJSON, dst)
 }
 
 // Transaction represents summary information about a transaction.
@@ -285,14 +280,34 @@ func (g *PluginRPC) Init(tag string, phylum string, options *ConcreteRequestOpti
 
 // Call forwards the call
 func (g *PluginRPC) Call(tag string, command string, options *ConcreteRequestOptions) (*Response, error) {
+
+	if options.DebugPrint {
+		logrus.WithFields(logrus.Fields{
+			"tag":     tag,
+			"command": command,
+		}).Debug("UNSAFE: plugin request")
+	}
+
 	var resp RespCall
 	err := g.client.Call("Plugin.Call", &ArgsCall{Tag: tag, Command: command, Options: options}, &resp)
 	if err != nil {
 		return nil, err
 	}
 	if resp.Err != nil {
+		if options.DebugPrint {
+			logrus.WithFields(logrus.Fields{
+				"resp.Err": resp.Err.Error(),
+			}).Debug("UNSAFE: plugin response error")
+		}
 		return nil, resp.Err
 	}
+
+	if options.DebugPrint {
+		logrus.WithFields(logrus.Fields{
+			"resp.Response.ResultJSON": string(resp.Response.ResultJSON),
+		}).Debug("UNSAFE: plugin response success")
+	}
+
 	return resp.Response, nil
 }
 

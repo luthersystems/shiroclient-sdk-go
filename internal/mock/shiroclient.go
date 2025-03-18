@@ -78,6 +78,7 @@ func (c *mockShiroClient) flatten(ctx context.Context, configs ...types.Config) 
 		NewPhylumVersion:    opt.NewPhylumVersion,
 		CCFetchURLDowngrade: opt.CcFetchURLDowngrade,
 		CCFetchURLProxy:     url(opt.CcFetchURLProxy),
+		DebugPrint:          opt.DebugPrint,
 	}, nil
 }
 

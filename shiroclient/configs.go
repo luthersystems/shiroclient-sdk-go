@@ -216,3 +216,10 @@ func WithResponseReceiver(get func(resp ShiroResponse)) Config {
 		r.ResponseReceiver = get
 	})
 }
+
+// WithUnsafeDebug prints raw shiro-rpc responses to the logs.
+func WithUnsafeDebug() Config {
+	return types.Opt(func(r *types.RequestOptions) {
+		r.DebugPrint = true
+	})
+}
