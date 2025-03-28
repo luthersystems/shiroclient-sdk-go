@@ -14,6 +14,7 @@ import (
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
 	"github.com/luthersystems/shiroclient-sdk-go/x/plugin"
+	"github.com/luthersystems/svc/txctx"
 )
 
 var _ types.ShiroClient = (*mockShiroClient)(nil)
@@ -112,6 +113,8 @@ func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...ty
 	if err != nil {
 		return nil, err
 	}
+
+	txctx.SetTransactionDetails(ctx, txctx.TransactionDetails{TransactionID: resp.TransactionID})
 
 	if resp.HasError {
 		return types.NewFailureResponse(resp.ErrorCode, resp.ErrorMessage, resp.ErrorJSON), nil
