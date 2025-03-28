@@ -18,6 +18,7 @@ import (
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/x/rpc"
+	"github.com/luthersystems/svc/txctx"
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
@@ -498,8 +499,9 @@ func (c *rpcShiroClient) Init(ctx context.Context, phylum string, configs ...typ
 			opt.ResponseReceiver(res)
 		}
 
-		return nil
+		txctx.SetTransactionDetails(ctx, txctx.TransactionDetails{TransactionID: res.TransactionID(), CommitBlockNum: res.CommitBlockNum(), MaxSimBlockNum: res.MaxSimBlockNum()})
 
+		return nil
 	case rpc.ErrorLevelShiroClient:
 		return res.getShiroClientError()
 
@@ -598,6 +600,8 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 			opt.ResponseReceiver(res)
 		}
 
+		txctx.SetTransactionDetails(ctx, txctx.TransactionDetails{TransactionID: res.TransactionID(), CommitBlockNum: res.CommitBlockNum(), MaxSimBlockNum: res.MaxSimBlockNum()})
+
 		return res, nil
 
 	case rpc.ErrorLevelShiroClient:
@@ -620,6 +624,8 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 		}
 
 		res := types.NewFailureResponse(int(code), message, dataJSON)
+
+		txctx.SetTransactionDetails(ctx, txctx.TransactionDetails{TransactionID: res.TransactionID(), CommitBlockNum: res.CommitBlockNum(), MaxSimBlockNum: res.MaxSimBlockNum()})
 
 		if opt.ResponseReceiver != nil {
 			opt.ResponseReceiver(res)
