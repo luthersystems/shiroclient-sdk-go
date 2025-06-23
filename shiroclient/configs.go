@@ -223,3 +223,11 @@ func WithUnsafeDebug() Config {
 		r.DebugPrint = true
 	})
 }
+
+// SetDiscardUnknownFields toggles whether unknown protobuf fields
+// are discarded rather than producing an error.
+//
+// It must be called before any RPCs that unmarshal messages.
+func SetDiscardUnknownFields(discard bool) {
+	types.UnmarshalOptions.DiscardUnknown = discard
+}
