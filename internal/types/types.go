@@ -66,6 +66,11 @@ func Opt(fn func(r *RequestOptions)) Config {
 	return &standardConfig{fn}
 }
 
+// UnmarshalOptions sets default proto unmarshaling options.
+var UnmarshalOptions = protojson.UnmarshalOptions{
+	DiscardUnknown: false,
+}
+
 // Config is a type for a function that can mutate a types.RequestOptions
 // object.
 type Config interface {
@@ -323,21 +328,23 @@ func (b *block) Transactions() []Transaction {
 	return out
 }
 
-// UnmarshalProto attempts to unmarshal protobuf bytes with backwards compatability.
+// UnmarshalProto attempts to unmarshal protobuf bytes with backwards compatibility,
+// using the global UnmarshalOptions to drive whether unknown fields are discarded.
 func UnmarshalProto(src []byte, dst interface{}) error {
-	var err error
-	switch message := dst.(type) {
+	switch msg := dst.(type) {
 	case proto.Message:
-		err = protojson.Unmarshal(src, message)
-	case protoiface.MessageV1:
-		//nolint:staticcheck // Deprecated Unmarshal used for backwards compatibility
-		err = jsonpb.Unmarshal(bytes.NewReader(src), message)
-	default:
-		err = json.Unmarshal(src, message)
-	}
-	if err != nil {
-		return err
-	}
+		// v2 API: use our global options
+		return UnmarshalOptions.Unmarshal(src, msg)
 
-	return nil
+	case protoiface.MessageV1:
+		// v1 API: mirror DiscardUnknown via AllowUnknownFields
+		unm := &jsonpb.Unmarshaler{
+			AllowUnknownFields: UnmarshalOptions.DiscardUnknown,
+		}
+		return unm.Unmarshal(bytes.NewReader(src), msg)
+
+	default:
+		// fallback to plain JSON
+		return json.Unmarshal(src, msg)
+	}
 }
