@@ -43,6 +43,16 @@ err = client.Init(ctx, shiroclient.EncodePhylumBytes(testPhylum))
 
 You can restore mock clients from snapshots and bootstrap them with config.
 
+### Tracing in Mock Mode
+
+The substrate plugin supports OTLP trace export. Set the `SUBSTRATE_OTLP_ENDPOINT` environment variable to enable end-to-end distributed tracing when running with the mock client:
+
+```bash
+SUBSTRATE_OTLP_ENDPOINT=http://localhost:4318 go test ./...
+```
+
+Because the SDK launches the plugin as a child process that inherits the parent's environment, no additional configuration is needed. The SDK's existing trace context propagation via transient data connects your application-layer spans to substrate-layer spans, giving you a unified view across the entire call chain.
+
 ---
 
 ## 🔁 Batch Driver
