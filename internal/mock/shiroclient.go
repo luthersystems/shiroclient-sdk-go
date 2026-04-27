@@ -15,7 +15,35 @@ import (
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
 	"github.com/luthersystems/shiroclient-sdk-go/x/plugin"
 	"github.com/luthersystems/svc/txctx"
+	"go.opentelemetry.io/otel/propagation"
 )
+
+// tracePropagator carries the W3C TraceContext across the goplugin RPC
+// boundary into substratehcp, where the original ctx is otherwise lost.
+// Mirrors the propagator used in internal/rpc/shiroclient.go.
+var tracePropagator = propagation.NewCompositeTextMapPropagator(propagation.TraceContext{})
+
+// traceCarrier adapts ConcreteRequestOptions.Transient (map[string][]byte) to
+// propagation.TextMapCarrier so trace headers can ride alongside other
+// transient data without a string/[]byte copy.
+type traceCarrier map[string][]byte
+
+func (c traceCarrier) Get(key string) string {
+	if v, ok := c[key]; ok {
+		return string(v)
+	}
+	return ""
+}
+
+func (c traceCarrier) Set(key, value string) { c[key] = []byte(value) }
+
+func (c traceCarrier) Keys() []string {
+	keys := make([]string, 0, len(c))
+	for k := range c {
+		keys = append(keys, k)
+	}
+	return keys
+}
 
 var _ types.ShiroClient = (*mockShiroClient)(nil)
 
@@ -37,6 +65,8 @@ type mockShiroClient struct {
 
 func (c *mockShiroClient) flatten(ctx context.Context, configs ...types.Config) (*plugin.ConcreteRequestOptions, error) {
 	opt := types.ApplyConfigs(nil, append(c.baseConfig, configs...)...)
+
+	tracePropagator.Inject(ctx, traceCarrier(opt.Transient))
 
 	params, err := json.Marshal(opt.Params)
 	if err != nil {
