@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Go SDK for the Luther Platform's Shiroclient gateway. Provides a JSON-RPC client for blockchain-based smart contract execution using ELPS (a LISP dialect) as the phylum language. Includes both RPC and mock (in-process via HashiCorp go-plugin) implementations.
 
 **Module**: `github.com/luthersystems/shiroclient-sdk-go`
-**Go version**: 1.23
+**Go version**: 1.25
 
 ## Build & Test Commands
 
@@ -71,7 +71,7 @@ Functional options via `Config` interface. All operations accept variadic `...Co
 
 ## CI
 
-GitHub Actions on PRs to `main`: golangci-lint v1.63, then `make citest`. See `.github/workflows/shiroclient-sdk-go.yml`.
+GitHub Actions on PRs to `main`: golangci-lint v2.6, then `make citest`. See `.github/workflows/shiroclient-sdk-go.yml`.
 
 ## Skills
 
