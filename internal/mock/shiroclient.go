@@ -63,6 +63,10 @@ type mockShiroClient struct {
 	shiroPhylum string
 }
 
+// flatten is the single choke point for every RPC-bound method (Init, Call,
+// QueryInfo, QueryBlock). When adding a new entry point, route it through
+// flatten with the caller's ctx so trace propagation, timestamps, and config
+// merge order stay consistent across the goplugin boundary.
 func (c *mockShiroClient) flatten(ctx context.Context, configs ...types.Config) (*plugin.ConcreteRequestOptions, error) {
 	opt := types.ApplyConfigs(nil, append(c.baseConfig, configs...)...)
 
