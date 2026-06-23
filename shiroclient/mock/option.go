@@ -4,6 +4,7 @@ package mock
 
 import (
 	"io"
+	"time"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/mockint"
 )
@@ -53,5 +54,19 @@ func WithLogLevel(level mockint.LogLevel) Option {
 func WithSnapshotReader(r io.Reader) Option {
 	return func(config *mockint.Config) {
 		config.SnapshotReader = r
+	}
+}
+
+// WithPreheatTimeout overrides the substrate phylum preheat/init timeout for
+// the mock. A non-positive duration leaves the substrate default (6s) in
+// effect. Raising it helps avoid spurious "phylum init timeout" errors when
+// many mock clients initialize in parallel under heavy CPU load, e.g. large Go
+// test suites running with high parallelism.
+//
+// This requires a substratehcp plugin built from a substrate version that
+// honors the option; older plugins silently ignore it.
+func WithPreheatTimeout(d time.Duration) Option {
+	return func(config *mockint.Config) {
+		config.PreheatTimeout = d
 	}
 }
