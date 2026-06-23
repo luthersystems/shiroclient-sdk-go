@@ -265,7 +265,9 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 		}
 	}
 	var tag string
-	tag, err = conn.GetSubstrate().NewMockFrom(mockint.PhylumName, mockint.PhylumVersion, snapshot)
+	tag, err = conn.GetSubstrate().NewMockFrom(mockint.PhylumName, mockint.PhylumVersion, snapshot, plugin.MockOptions{
+		PreheatTimeout: config.PreheatTimeout,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mock client: %w", err)
 	}

@@ -2,6 +2,7 @@ package mockint
 
 import (
 	"io"
+	"time"
 )
 
 const (
@@ -23,4 +24,7 @@ type Config struct {
 	LogWriter      io.Writer
 	LogLevel       LogLevel
 	SnapshotReader io.Reader
+	// PreheatTimeout overrides the substrate phylum preheat/init timeout. A
+	// non-positive value leaves the substrate default in effect.
+	PreheatTimeout time.Duration
 }

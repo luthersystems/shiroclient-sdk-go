@@ -11,11 +11,22 @@ import (
 	"net/rpc"
 	"os"
 	"os/exec"
+	"time"
 
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/go-plugin"
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 )
+
+// MockOptions carries construction-time options for a mock substrate created
+// via NewMockFrom. Fields are plain data so the struct can travel across the
+// plugin RPC boundary. A zero value selects substrate defaults for every
+// field.
+type MockOptions struct {
+	// PreheatTimeout overrides the substrate phylum preheat/init timeout. A
+	// non-positive value uses the substrate default.
+	PreheatTimeout time.Duration
+}
 
 // ConcreteRequestOptions is a variant of RequestOptions that is
 // "flattened" to pure data.
@@ -83,7 +94,7 @@ type Block struct {
 type Substrate interface {
 	HealthCheck(int) (int, error)
 
-	NewMockFrom(string, string, []byte) (string, error)
+	NewMockFrom(string, string, []byte, MockOptions) (string, error)
 	SetCreatorWithAttributesMock(string, string, map[string]string) error
 	SnapshotMock(string) ([]byte, error)
 	CloseMock(string) error
@@ -109,6 +120,9 @@ type ArgsNewMockFrom struct {
 	Name     string
 	Version  string
 	Snapshot []byte
+	// Options is decoded by gob; older plugin servers that predate this
+	// field simply ignore it, leaving substrate defaults in effect.
+	Options MockOptions
 }
 
 // RespNewMockFrom encodes the response from NewMockFrom
@@ -214,9 +228,9 @@ func (g *PluginRPC) HealthCheck(nat int) (int, error) {
 }
 
 // NewMockFrom forwards the call
-func (g *PluginRPC) NewMockFrom(name string, version string, snapshot []byte) (string, error) {
+func (g *PluginRPC) NewMockFrom(name string, version string, snapshot []byte, opts MockOptions) (string, error) {
 	var resp RespNewMockFrom
-	err := g.client.Call("Plugin.NewMockFrom", &ArgsNewMockFrom{Name: name, Version: version, Snapshot: snapshot}, &resp)
+	err := g.client.Call("Plugin.NewMockFrom", &ArgsNewMockFrom{Name: name, Version: version, Snapshot: snapshot, Options: opts}, &resp)
 	if err != nil {
 		return "", err
 	}
@@ -360,7 +374,7 @@ func (s *PluginRPCServer) HealthCheck(args *ArgsHealthCheck, resp *RespHealthChe
 
 // NewMockFrom forwards the call
 func (s *PluginRPCServer) NewMockFrom(args *ArgsNewMockFrom, resp *RespNewMockFrom) error {
-	tag, err := s.Impl.NewMockFrom(args.Name, args.Version, args.Snapshot)
+	tag, err := s.Impl.NewMockFrom(args.Name, args.Version, args.Snapshot, args.Options)
 	if err != nil {
 		resp.Err = s.newError(err)
 		return nil
