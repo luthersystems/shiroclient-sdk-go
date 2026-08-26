@@ -498,6 +498,7 @@ type connectOption struct {
 	level        hclog.Level
 	command      string
 	attachStdamp io.Writer
+	logOutput    io.Writer
 }
 
 // ConnectOption represents the type of a builder action for connectOption
@@ -527,14 +528,76 @@ func ConnectWithAttachStdamp(attachStdamp io.Writer) func(co *connectOption) err
 	})
 }
 
+// ConnectWithLogOutput specifies an io.Writer to receive the go-plugin CLIENT
+// logger's output (the default is os.Stdout).
+//
+// This is a DIFFERENT stream from ConnectWithAttachStdamp, and the two were
+// not separable before: attachStdamp routes the plugin SUBPROCESS's stdout and
+// stderr, while this logger is the host-side hclog that emits go-plugin's own
+// lines -- "starting plugin", handshake progress, and any error-level report
+// such as a plugin exiting unexpectedly or an RPC failure.
+//
+// Only the LEVEL of that logger was configurable, so a caller who redirected
+// the subprocess streams still had host-side lines land on os.Stdout with no
+// way to stop them. That is not merely untidy. A caller running the plugin
+// inside a Go benchmark loses samples to it: `go test` writes a benchmark's
+// name, runs it, then writes the result to the SAME line, so anything
+// reaching stdout in between makes the row unparseable, and benchstat drops
+// it. Lowering the level to Error narrows the window but does not close it,
+// because error-level lines are exactly the ones worth emitting.
+//
+// Passing nil RECORDS nil; the os.Stdout default is then re-applied by
+// newPluginLogger, which is the single place that fallback lives. The
+// observable result is the default, but the option does not "leave it in
+// place" -- saying so would be the same kind of doc comment this change
+// exists to correct.
+func ConnectWithLogOutput(w io.Writer) func(co *connectOption) error {
+	return (func(co *connectOption) error {
+		co.logOutput = w
+		return nil
+	})
+}
+
 // SubstrateConnection interacts with the underlying plugin.
 type SubstrateConnection struct {
 	client    *plugin.Client
 	substrate Substrate
 }
 
-// NewSubstrateConnection connects to a plugin in the background.
-func NewSubstrateConnection(opts ...ConnectOption) (*SubstrateConnection, error) {
+// newPluginLogger builds the go-plugin CLIENT logger from the resolved
+// options.
+//
+// Extracted from NewSubstrateConnection so the writer wiring is reachable
+// from a test: NewSubstrateConnection itself needs a real plugin binary to
+// call, so a test that stopped at the option struct would pass even if this
+// construction went back to hardcoding os.Stdout -- which is exactly the bug
+// being fixed, and exactly what a mutation check caught.
+//
+// A nil writer falls back to os.Stdout rather than reaching hclog, which
+// substitutes os.Stderr for a nil Output -- a surprising place for plugin
+// logs to land.
+func newPluginLogger(co *connectOption) hclog.Logger {
+	out := co.logOutput
+	if out == nil {
+		out = os.Stdout
+	}
+	return hclog.New(&hclog.LoggerOptions{
+		Name:   "plugin",
+		Output: out,
+		Level:  co.level,
+	})
+}
+
+// newConnectOption applies opts over the defaults.
+//
+// It exists so the defaults live in exactly ONE place. A test that rebuilt
+// this literal itself would be asserting on a copy: change the default here
+// and the test would go on passing while describing a default that no longer
+// exists. logOutput is deliberately NOT defaulted here -- newPluginLogger owns
+// that fallback, so there is one defaulting site rather than two, and the one
+// that survives is the one that also covers an explicit
+// ConnectWithLogOutput(nil).
+func newConnectOption(opts ...ConnectOption) *connectOption {
 	co := &connectOption{level: hclog.Debug, attachStdamp: nil}
 
 	for _, opt := range opts {
@@ -542,13 +605,14 @@ func NewSubstrateConnection(opts ...ConnectOption) (*SubstrateConnection, error)
 			panic(err)
 		}
 	}
+	return co
+}
 
-	// Create an hclog.Logger
-	logger := hclog.New(&hclog.LoggerOptions{
-		Name:   "plugin",
-		Output: os.Stdout,
-		Level:  co.level,
-	})
+// NewSubstrateConnection connects to a plugin in the background.
+func NewSubstrateConnection(opts ...ConnectOption) (*SubstrateConnection, error) {
+	co := newConnectOption(opts...)
+
+	logger := newPluginLogger(co)
 
 	cmd := exec.Command(co.command) // #nosec G204
 

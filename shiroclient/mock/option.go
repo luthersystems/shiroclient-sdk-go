@@ -34,6 +34,13 @@ func WithPluginPath(path string) Option {
 
 // WithLogWriter sets the plugin's log destination to the supplied io.Writer.
 // By default, the plugin writes to os.Stdout.
+//
+// This covers both streams the plugin produces: the subprocess's own stdout
+// and stderr, and go-plugin's host-side client logger ("starting plugin",
+// handshake progress, and error-level reports such as a plugin exiting
+// unexpectedly). Before, it reached only the first, so the second went to
+// os.Stdout however this was set -- passing io.Discard did not actually
+// silence the plugin.
 func WithLogWriter(w io.Writer) Option {
 	return func(config *mockint.Config) {
 		config.LogWriter = w
