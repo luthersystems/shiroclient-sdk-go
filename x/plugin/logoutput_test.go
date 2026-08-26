@@ -2,10 +2,10 @@ package plugin
 
 import (
 	"bytes"
+	"io"
 	"os"
+	"strings"
 	"testing"
-
-	"github.com/hashicorp/go-hclog"
 )
 
 // TestConnectWithLogOutput pins that the go-plugin CLIENT logger honours
@@ -20,22 +20,22 @@ import (
 // reachable, so mock.WithLogWriter could not do what it documents. That gap was
 // invisible precisely because nothing asserted it.
 func TestConnectWithLogOutput(t *testing.T) {
+	// The PRODUCTION constructor, not a replica of it. The previous version
+	// rebuilt NewSubstrateConnection's literal here and said so ("Mirrors");
+	// that asserts on the copy, so changing the real default would leave this
+	// passing while describing a default that no longer exists.
 	resolve := func(t *testing.T, opts ...ConnectOption) *connectOption {
 		t.Helper()
-		// Mirrors NewSubstrateConnection's defaults and option loop.
-		co := &connectOption{level: hclog.Debug, attachStdamp: nil, logOutput: os.Stdout}
-		for _, opt := range opts {
-			if err := opt(co); err != nil {
-				t.Fatalf("option returned an error: %v", err)
-			}
-		}
-		return co
+		return newConnectOption(opts...)
 	}
 
-	t.Run("default is os.Stdout", func(t *testing.T) {
-		if got := resolve(t).logOutput; got != os.Stdout {
-			t.Errorf("default logOutput = %v, want os.Stdout", got)
+	t.Run("default resolves to os.Stdout through the logger", func(t *testing.T) {
+		// Unset at the option layer -- newPluginLogger owns the fallback, so
+		// that is where the default is observable.
+		if got := resolve(t).logOutput; got != nil {
+			t.Errorf("default logOutput = %v, want nil (newPluginLogger applies the default)", got)
 		}
+		assertLogsTo(t, resolve(t), wantStdout)
 	})
 
 	t.Run("option redirects the client logger", func(t *testing.T) {
@@ -55,20 +55,21 @@ func TestConnectWithLogOutput(t *testing.T) {
 		}
 	})
 
-	t.Run("nil writer falls back rather than reaching hclog", func(t *testing.T) {
-		// A nil Output makes hclog substitute os.Stderr, which would be a
-		// surprising place for plugin logs to appear. NewSubstrateConnection
-		// guards against it; this pins that the guard is needed and correct.
+	t.Run("nil writer falls back to stdout rather than reaching hclog", func(t *testing.T) {
+		// A nil Output makes hclog fall back to DefaultOutput, its init-time
+		// snapshot of os.Stderr -- so the line escapes to the real process
+		// stderr and NO caller redirection can catch it. newPluginLogger
+		// guards against that by defaulting to os.Stdout instead.
+		//
+		// The previous version of this asserted `newPluginLogger(co) != nil`.
+		// hclog.New never returns nil, so that could not fail: delete the
+		// guard and it still passed, while its comment claimed to pin it.
+		// This asserts on where the bytes go, and fails when the guard goes.
 		co := resolve(t, ConnectWithLogOutput(nil))
 		if co.logOutput != nil {
 			t.Fatalf("expected the option to record nil, got %v", co.logOutput)
 		}
-		// The guard lives in newPluginLogger, so exercise it there. hclog does
-		// not expose its writer, so assert the logger is usable and that the
-		// nil never reached it as an Output.
-		if lg := newPluginLogger(co); lg == nil {
-			t.Fatal("newPluginLogger returned nil for a nil writer")
-		}
+		assertLogsTo(t, co, wantStdout)
 	})
 
 	t.Run("log output is independent of attachStdamp", func(t *testing.T) {
@@ -81,4 +82,72 @@ func TestConnectWithLogOutput(t *testing.T) {
 			t.Errorf("attachStdamp = %v, want the stdio buffer", co.attachStdamp)
 		}
 	})
+}
+
+// stream names the descriptor a log line is expected on.
+type stream int
+
+const (
+	wantStdout stream = iota
+)
+
+// assertLogsTo rebinds BOTH os.Stdout and os.Stderr to pipes, logs one line
+// through the production newPluginLogger, and asserts it arrived on the
+// expected one and NOT the other.
+//
+// Watching where the bytes land is the only option: hclog does not expose its
+// writer.
+//
+// The stdout assertion is the load-bearing one, and the reason is worse than
+// "nil would go to stderr instead". hclog's nil fallback is `DefaultOutput`
+// (logger.go: `DefaultOutput io.Writer = os.Stderr`) -- a package-level
+// variable initialised when hclog is initialised. It is a SNAPSHOT of
+// os.Stderr, not a read of it, so a nil Output escapes to the real process
+// stderr and rebinding os.Stderr afterwards cannot intercept it. Verified: with
+// the guard removed this helper sees stdout="" AND stderr="", because the line
+// went somewhere neither pipe can reach.
+//
+// So the stderr check below is a secondary guard against hclog changing that
+// behaviour; it is the MISSING stdout line that catches the guard's removal
+// today.
+func assertLogsTo(t *testing.T, co *connectOption, want stream) {
+	t.Helper()
+
+	outR, outW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	savedOut, savedErr := os.Stdout, os.Stderr
+	os.Stdout, os.Stderr = outW, errW
+	restore := func() { os.Stdout, os.Stderr = savedOut, savedErr }
+	defer restore()
+
+	outCh, errCh := make(chan string, 1), make(chan string, 1)
+	go func() { b, _ := io.ReadAll(outR); outCh <- string(b) }()
+	go func() { b, _ := io.ReadAll(errR); errCh <- string(b) }()
+
+	const marker = "assertLogsTo probe line"
+	newPluginLogger(co).Error(marker)
+
+	restore()
+	_ = outW.Close()
+	_ = errW.Close()
+	gotOut, gotErr := <-outCh, <-errCh
+	_ = outR.Close()
+	_ = errR.Close()
+
+	if want != wantStdout {
+		t.Fatalf("unsupported stream %d", want)
+	}
+	if !strings.Contains(gotOut, marker) {
+		t.Errorf("log line did not reach os.Stdout; stdout=%q stderr=%q", gotOut, gotErr)
+	}
+	if strings.Contains(gotErr, marker) {
+		t.Errorf("log line reached os.STDERR -- the nil-writer guard in "+
+			"newPluginLogger is missing, so hclog substituted stderr; stderr=%q", gotErr)
+	}
 }

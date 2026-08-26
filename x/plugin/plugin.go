@@ -546,7 +546,11 @@ func ConnectWithAttachStdamp(attachStdamp io.Writer) func(co *connectOption) err
 // it. Lowering the level to Error narrows the window but does not close it,
 // because error-level lines are exactly the ones worth emitting.
 //
-// A nil writer leaves the default in place.
+// Passing nil RECORDS nil; the os.Stdout default is then re-applied by
+// newPluginLogger, which is the single place that fallback lives. The
+// observable result is the default, but the option does not "leave it in
+// place" -- saying so would be the same kind of doc comment this change
+// exists to correct.
 func ConnectWithLogOutput(w io.Writer) func(co *connectOption) error {
 	return (func(co *connectOption) error {
 		co.logOutput = w
@@ -584,15 +588,29 @@ func newPluginLogger(co *connectOption) hclog.Logger {
 	})
 }
 
-// NewSubstrateConnection connects to a plugin in the background.
-func NewSubstrateConnection(opts ...ConnectOption) (*SubstrateConnection, error) {
-	co := &connectOption{level: hclog.Debug, attachStdamp: nil, logOutput: os.Stdout}
+// newConnectOption applies opts over the defaults.
+//
+// It exists so the defaults live in exactly ONE place. A test that rebuilt
+// this literal itself would be asserting on a copy: change the default here
+// and the test would go on passing while describing a default that no longer
+// exists. logOutput is deliberately NOT defaulted here -- newPluginLogger owns
+// that fallback, so there is one defaulting site rather than two, and the one
+// that survives is the one that also covers an explicit
+// ConnectWithLogOutput(nil).
+func newConnectOption(opts ...ConnectOption) *connectOption {
+	co := &connectOption{level: hclog.Debug, attachStdamp: nil}
 
 	for _, opt := range opts {
 		if err := opt(co); err != nil {
 			panic(err)
 		}
 	}
+	return co
+}
+
+// NewSubstrateConnection connects to a plugin in the background.
+func NewSubstrateConnection(opts ...ConnectOption) (*SubstrateConnection, error) {
+	co := newConnectOption(opts...)
 
 	logger := newPluginLogger(co)
 
