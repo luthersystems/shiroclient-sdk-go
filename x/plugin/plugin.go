@@ -5,9 +5,9 @@
 package plugin
 
 import (
+	"fmt"
 	"github.com/sirupsen/logrus"
 	"io"
-	"log"
 	"net/rpc"
 	"os"
 	"os/exec"
@@ -573,9 +573,12 @@ type SubstrateConnection struct {
 // construction went back to hardcoding os.Stdout -- which is exactly the bug
 // being fixed, and exactly what a mutation check caught.
 //
-// A nil writer falls back to os.Stdout rather than reaching hclog, which
-// substitutes os.Stderr for a nil Output -- a surprising place for plugin
-// logs to land.
+// A nil writer falls back to os.Stdout rather than reaching hclog.  hclog's
+// own fallback for a nil Output is DefaultOutput (logger.go: `DefaultOutput
+// io.Writer = os.Stderr`), a package-level variable initialised when hclog is
+// -- a SNAPSHOT of os.Stderr, not a read of it.  So a nil Output would escape
+// to the real process stderr and no later redirection could intercept it,
+// which is worse than merely landing on the wrong stream.
 func newPluginLogger(co *connectOption) hclog.Logger {
 	out := co.logOutput
 	if out == nil {
@@ -627,21 +630,50 @@ func NewSubstrateConnection(opts ...ConnectOption) (*SubstrateConnection, error)
 		SyncStderr:      co.attachStdamp,
 	})
 
-	// Connect via RPC
+	// Connect via RPC.
+	//
+	// Each failure below RETURNS rather than exiting.  Both of these were
+	// log.Fatal, which writes to the standard logger and then calls
+	// os.Exit(1) -- from a library, on a function that declares an error
+	// return and whose only caller (internal/mock.NewMock) propagates it.  A
+	// plugin that failed to start therefore killed the caller's process
+	// instead of failing one operation: no deferred Close, no t.Cleanup, no
+	// recoverable error, and a message on a writer no option here can
+	// redirect.
+	//
+	// client.Kill() on each path is the other half of that change.  Exiting
+	// made subprocess cleanup moot; returning does not, and plugin.NewClient
+	// may already have spawned the child by the time Client() reports a
+	// failure.  Without this the caller would get their error AND a leaked
+	// process.
 	rpcClient, err := client.Client()
 	if err != nil {
-		log.Fatal(err)
+		client.Kill()
+		return nil, fmt.Errorf("connect to plugin %q: %w", co.command, err)
 	}
 
 	// Request the plugin
 	raw, err := rpcClient.Dispense("substrate")
 	if err != nil {
-		log.Fatal(err)
+		client.Kill()
+		return nil, fmt.Errorf("dispense substrate plugin: %w", err)
 	}
 
-	// This feels like a normal interface implementation but is in
-	// fact over an RPC connection.
-	substrate := raw.(Substrate)
+	// This feels like a normal interface implementation but is in fact over an
+	// RPC connection.
+	//
+	// Checked rather than a bare raw.(Substrate): an unchecked assertion
+	// panics, which is the same "library takes the process down" shape as the
+	// log.Fatal above, just recoverable.  It fires if the plugin registers
+	// "substrate" as some other type -- a version skew between this SDK and
+	// the substrate binary, which is exactly when a clear error beats a stack
+	// trace.
+	substrate, ok := raw.(Substrate)
+	if !ok {
+		client.Kill()
+		return nil, fmt.Errorf("plugin %q dispensed %T, want plugin.Substrate "+
+			"(SDK/plugin version skew?)", co.command, raw)
+	}
 
 	return &SubstrateConnection{client: client, substrate: substrate}, nil
 }
