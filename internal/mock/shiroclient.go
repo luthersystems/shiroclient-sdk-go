@@ -251,7 +251,13 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 	pluginOpts := []plugin.ConnectOption{
 		plugin.ConnectWithCommand(config.PluginPath),
 		plugin.ConnectWithLogLevel(hcpLogLevel(config.LogLevel)),
+		// LogWriter drives BOTH plugin log streams. It fed only the
+		// subprocess's stdio before, while go-plugin's own host-side client
+		// logger stayed hardcoded to os.Stdout -- so mock.WithLogWriter did
+		// not do what it documents ("sets the plugin's log destination"), and
+		// a caller could not silence the plugin at all.
 		plugin.ConnectWithAttachStdamp(config.LogWriter),
+		plugin.ConnectWithLogOutput(config.LogWriter),
 	}
 	conn, err := plugin.NewSubstrateConnection(pluginOpts...)
 	if err != nil {
