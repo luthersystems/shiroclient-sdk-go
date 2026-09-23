@@ -132,7 +132,15 @@ func WithTargetEndpoints(nameOrURL []string) Config {
 }
 
 // WithoutTargetEndpoints allows specifying which exact peers will not
-// be used to process the transaction. Specifcy a name or URL of the peer.
+// be used to process the transaction. Specify a name or URL of the peer.
+//
+// The gateway receives the list as the "not_target_endpoints" Call param and
+// never sends the transaction to those peers. A typical use is a snapshot
+// restore: a restored peer can report itself ready and healthy before it has
+// finished reconciling private data, so it must be excluded until it has
+// caught up (see
+// https://github.com/luthersystems/shiroclient-sdk-go/issues/43). The list
+// applies to Call only and has no effect in mock mode.
 func WithoutTargetEndpoints(nameOrURL []string) Config {
 	return types.Opt(func(r *types.RequestOptions) {
 		r.NotTargetEndpoints = append([]string(nil), nameOrURL...)
