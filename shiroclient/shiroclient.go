@@ -60,6 +60,23 @@ func IsTimeoutError(err error) bool {
 	return rpc.IsTimeoutError(err)
 }
 
+// OutcomeUnknownError indicates that a submitted transaction may still commit.
+// Check the ledger for TxID before retrying. Old servers never produce this error.
+type OutcomeUnknownError = rpc.OutcomeUnknownError
+
+// ErrOutcomeUnknown matches ambiguous transaction outcomes via errors.Is.
+// The transaction may still commit; check the ledger for its TxID before retrying.
+// Old servers never report this state.
+var ErrOutcomeUnknown = rpc.ErrOutcomeUnknown
+
+// OutcomeUnknownTxID returns the transaction ID for an ambiguous outcome, including
+// through wrapped errors. The transaction may still commit; check the ledger for
+// TxID before retrying. The ID may be empty even when ok is true. Old servers never
+// produce this state.
+func OutcomeUnknownTxID(err error) (txID string, ok bool) {
+	return rpc.OutcomeUnknownTxID(err)
+}
+
 // NewRPC creates a new RPC ShiroClient with the given set of base
 // configs that will be applied to all commands.
 func NewRPC(clientConfigs []Config) ShiroClient {

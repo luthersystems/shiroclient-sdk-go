@@ -55,6 +55,35 @@ type scError struct {
 	code    int
 }
 
+// ErrOutcomeUnknown indicates that a submitted transaction may still commit.
+var ErrOutcomeUnknown = errors.New("shiroclient: transaction outcome unknown")
+
+// OutcomeUnknownError identifies a transaction whose outcome is unknown.
+// Check the ledger for TxID before retrying; the transaction may still commit.
+type OutcomeUnknownError struct {
+	TxID string
+}
+
+// Error implements error.
+func (e *OutcomeUnknownError) Error() string {
+	return fmt.Sprintf("%s: txid=%s", ErrOutcomeUnknown, e.TxID)
+}
+
+// Is matches ErrOutcomeUnknown.
+func (e *OutcomeUnknownError) Is(target error) bool {
+	return target == ErrOutcomeUnknown
+}
+
+// OutcomeUnknownTxID finds an outcome-unknown transaction through wrapped errors.
+// The ID may be empty even when ok is true. Old servers do not report this state.
+func OutcomeUnknownTxID(err error) (txID string, ok bool) {
+	var outcome *OutcomeUnknownError
+	if errors.As(err, &outcome) {
+		return outcome.TxID, true
+	}
+	return "", false
+}
+
 // Unwrap implements the Wrapper interface from the errors package.
 func (e *scError) Unwrap() error {
 	return e.err
@@ -78,14 +107,21 @@ func IsTimeoutError(err error) bool {
 // Returns an error object with the same detail message as the
 // ShiroClient error that was raised.
 func (r *rpcres) getShiroClientError() error {
+	var cause error
+	if data, ok := r.data.(map[string]interface{}); ok && data["outcome"] == "unknown" {
+		txID, _ := data["tx_id"].(string)
+		cause = &OutcomeUnknownError{TxID: txID}
+	}
 	message, ok := r.message.(string)
 	if !ok {
 		return &scError{
+			err:     cause,
 			message: "shiroclient error with no message",
 		}
 	}
 	code, _ := r.code.(float64)
 	return &scError{
+		err:     cause,
 		message: message,
 		code:    int(code),
 	}
