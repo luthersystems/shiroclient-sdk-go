@@ -140,6 +140,11 @@ func CallBatch(ctx context.Context, client ShiroClient, requests []CallBatchRequ
 	return bc.CallBatch(ctx, requests, configs...)
 }
 
+// CodeBatchAborted is the JSON-RPC error code substrate reserves for a request
+// of a batch that was not committed because another request failed. A phylum
+// error never carries it.
+const CodeBatchAborted = types.CodeBatchAborted
+
 // CallBatchAborted reports whether err is the error given to a request of a
 // batch that did not fail itself but was not committed because another
 // request failed.  failedID is the id of the request that failed.

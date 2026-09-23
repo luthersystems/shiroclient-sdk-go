@@ -60,9 +60,9 @@ const batchCommitted = `{"jsonrpc":"2.0","id":"batch-1",
 const batchSpoiled = `{"jsonrpc":"2.0","id":"batch-1",
  "result":{"error_level":2,"committed":false,"code":-32000,
    "message":"batch not committed: request 1 failed: nope","data":{"failed_index":1},
-   "result":[{"id":"p","error_level":2,"result":null,"code":-32000,"message":"Server error","data":{"batch_aborted":true,"failed_id":"f"}},
+   "result":[{"id":"p","error_level":2,"result":null,"code":-32001,"message":"Batch aborted","data":{"batch_aborted":true,"failed_id":"f"}},
              {"id":"f","error_level":2,"result":null,"code":-32000,"message":"nope","data":"nope"},
-             {"id":"q","error_level":2,"result":null,"code":-32000,"message":"Server error","data":{"batch_aborted":true,"failed_id":"f"}}]}}`
+             {"id":"q","error_level":2,"result":null,"code":-32001,"message":"Batch aborted","data":{"batch_aborted":true,"failed_id":"f"}}]}}`
 
 const batchReadOnly = `{"jsonrpc":"2.0","id":"batch-1",
  "result":{"error_level":0,"code":null,"message":null,"data":null,"committed":false,
@@ -419,4 +419,26 @@ func TestCallBatchStampsTransactionDetails(t *testing.T) {
 		[]shiroclient.CallBatchRequest{{Method: "a"}, {Method: "b"}})
 	require.NoError(t, err)
 	assert.Equal(t, "tx-batch", txctx.GetTransactionDetails(ctx).TransactionID)
+}
+
+// A phylum's own failure can carry data that looks like the abort marker.
+// Only the reserved code -32001, which substrate's router never lets a phylum
+// produce, makes an element an aborted one.
+func TestCallBatchAbortedRequiresReservedCode(t *testing.T) {
+	client, _, _ := batchGateway(t, `{"jsonrpc":"2.0","id":"batch-1",
+ "result":{"error_level":2,"code":-32000,"message":"Server error","committed":false,
+   "data":{"failed_index":0},
+   "result":[{"id":"f","error_level":2,"result":null,"code":-32000,"message":"Server error","data":{"batch_aborted":true,"failed_id":"x"}},
+             {"id":"q","error_level":2,"result":null,"code":-32001,"message":"Batch aborted","data":{"batch_aborted":true,"failed_id":"f"}}]}}`)
+	resp, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
+		{Method: "a", ID: "f"}, {Method: "b", ID: "q"},
+	})
+	require.Error(t, err)
+	require.NotNil(t, resp)
+	_, spoofed := shiroclient.CallBatchAborted(resp.Responses[0].Error())
+	assert.False(t, spoofed, "a phylum error with abort-shaped data is not an abort")
+	failedID, aborted := shiroclient.CallBatchAborted(resp.Responses[1].Error())
+	assert.True(t, aborted)
+	assert.Equal(t, "f", failedID)
+	assert.Equal(t, 0, resp.FailedIndex())
 }

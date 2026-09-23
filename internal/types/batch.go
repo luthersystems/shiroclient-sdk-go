@@ -106,11 +106,18 @@ func (e *CallBatchError) Unwrap() error {
 	return e.Err
 }
 
+// CodeBatchAborted is the JSON-RPC error code substrate reserves for a request
+// of a batch that was not run, or not committed, because another request
+// failed. The router never lets a phylum error carry it.
+const CodeBatchAborted = -32001
+
 // CallBatchAborted reports whether err is the error given to a request of a batch
 // that did not fail itself but was not committed because another request
-// failed.  failedID is the id of the request that failed.
+// failed.  failedID is the id of the request that failed. Only the reserved
+// code CodeBatchAborted counts: a phylum error whose data merely looks like
+// the abort marker is that request's own failure.
 func CallBatchAborted(err Error) (failedID interface{}, ok bool) {
-	if err == nil {
+	if err == nil || err.Code() != CodeBatchAborted {
 		return nil, false
 	}
 	var data struct {
