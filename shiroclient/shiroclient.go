@@ -78,69 +78,73 @@ func OutcomeUnknownTxID(err error) (txID string, ok bool) {
 	return rpc.OutcomeUnknownTxID(err)
 }
 
-// BatchRequest is one request of a CallBatch: a phylum method, its
+// CallBatchRequest is one request of a CallBatch: a phylum method, its
 // parameters and an optional JSON-RPC id.
-type BatchRequest = types.BatchRequest
+type CallBatchRequest = types.CallBatchRequest
 
-// BatchResponse is the result of a CallBatch: one response per request, in
+// CallBatchResponse is the result of a CallBatch: one response per request, in
 // request order, and the batch's single transaction.
-type BatchResponse = types.BatchResponse
+type CallBatchResponse = types.CallBatchResponse
 
-// BatchError is the error CallBatch returns, together with the
-// BatchResponse, when a request failed and so nothing was committed.  It
+// CallBatchError is the error CallBatch returns, together with the
+// CallBatchResponse, when a request failed and so nothing was committed.  It
 // names the failed request's index and id, and wraps that request's error.
-type BatchError = types.BatchError
+type CallBatchError = types.CallBatchError
 
-// BatchCaller is implemented by clients that support CallBatch; NewRPC and
+// CallBatcher is implemented by clients that support CallBatch; NewRPC and
 // NewMock clients do.  It is not part of ShiroClient, so that adding it did
 // not break other implementations of that interface.
-type BatchCaller = types.BatchCaller
+type CallBatcher = types.CallBatcher
 
-// ErrBatchNotSupported matches, via errors.Is, a CallBatch that could not run
-// at all: the client does not implement BatchCaller, the gateway predates
+// ErrCallBatchNotSupported matches, via errors.Is, a CallBatch that could not run
+// at all: the client does not implement CallBatcher, the gateway predates
 // luthersystems/substrate#521 ("method not found"), or the client is a mock
 // (the substrate plugin does not support batches yet).  Nothing was run.
-var ErrBatchNotSupported = types.ErrBatchNotSupported
+var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 
 // CallBatch runs several phylum methods as ONE transaction, all or nothing.
 //
 // Requests run in order and each sees the writes of the ones before it.  If
 // every request succeeds and the batch wrote state, it is committed once:
-// BatchResponse.Committed is true and TxID is the transaction's ID (a batch
+// CallBatchResponse.Committed is true and TxID is the transaction's ID (a batch
 // that only reads is not committed and has no TxID, like a read-only Call).
 //
 // If any request fails, NOTHING is committed.  CallBatch then returns the
-// BatchResponse together with a *BatchError naming the failed request.  The
+// CallBatchResponse together with a *CallBatchError naming the failed request.  The
 // failed request's response carries its own error; every other request's
-// response carries a "batch aborted" error (see BatchAborted).
+// response carries a "batch aborted" error (see CallBatchAborted).
 //
 // The configs are those of Call, applied once to the whole batch.  Transient
 // data (WithTransientData) is shared by every request, and every request runs
 // against the same phylum version (WithPhylumVersion).  WithParams is
 // ignored: each request carries its own Params.
 //
-// A timeout or an ambiguous outcome is reported as for Call: IsTimeoutError,
-// and ErrOutcomeUnknown with OutcomeUnknownTxID, before which a caller must
-// not assume the batch did not commit.
+// A timeout (IsTimeoutError) means the batch MAY have committed: CallBatch
+// returns no CallBatchResponse and no CallBatchError, and the caller must
+// reconcile against the ledger before running the requests again.  With a
+// gateway that also includes luthersystems/substrate#515, the error also
+// matches ErrOutcomeUnknown and OutcomeUnknownTxID returns the transaction
+// ID to look for; an older gateway sends no transaction ID.  Never retry a
+// timed-out batch as a new batch, or as separate Calls, without reconciling.
 //
 // CallBatch needs a shiroclient gateway that includes
 // luthersystems/substrate#521.  With an older gateway, a mock client, or a
-// client that does not implement BatchCaller, it returns an error matching
-// ErrBatchNotSupported and runs nothing; it never falls back to separate
+// client that does not implement CallBatcher, it returns an error matching
+// ErrCallBatchNotSupported and runs nothing; it never falls back to separate
 // Calls, which would not be atomic.
-func CallBatch(ctx context.Context, client ShiroClient, requests []BatchRequest, configs ...Config) (*BatchResponse, error) {
-	bc, ok := client.(BatchCaller)
+func CallBatch(ctx context.Context, client ShiroClient, requests []CallBatchRequest, configs ...Config) (*CallBatchResponse, error) {
+	bc, ok := client.(CallBatcher)
 	if !ok {
-		return nil, fmt.Errorf("%w: %T does not implement BatchCaller", ErrBatchNotSupported, client)
+		return nil, fmt.Errorf("%w: %T does not implement CallBatcher", ErrCallBatchNotSupported, client)
 	}
 	return bc.CallBatch(ctx, requests, configs...)
 }
 
-// BatchAborted reports whether err is the error given to a request of a
+// CallBatchAborted reports whether err is the error given to a request of a
 // batch that did not fail itself but was not committed because another
 // request failed.  failedID is the id of the request that failed.
-func BatchAborted(err Error) (failedID interface{}, ok bool) {
-	return types.BatchAborted(err)
+func CallBatchAborted(err Error) (failedID interface{}, ok bool) {
+	return types.CallBatchAborted(err)
 }
 
 // NewRPC creates a new RPC ShiroClient with the given set of base

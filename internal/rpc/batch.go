@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,7 +12,7 @@ import (
 	"github.com/luthersystems/svc/txctx"
 )
 
-var _ types.BatchCaller = (*rpcShiroClient)(nil)
+var _ types.CallBatcher = (*rpcShiroClient)(nil)
 
 // jsonRPCCodeMethodNotFound is the JSON-RPC 2.0 "method not found" code.
 const jsonRPCCodeMethodNotFound = -32601
@@ -42,9 +43,9 @@ func jsonRPCErrorOf(arb interface{}) *jsonRPCError {
 	return &jsonRPCError{code: int(code), message: message}
 }
 
-// CallBatch implements types.BatchCaller: it runs requests as one
+// CallBatch implements types.CallBatcher: it runs requests as one
 // all-or-nothing transaction through the gateway's CallBatch method.
-func (c *rpcShiroClient) CallBatch(ctx context.Context, requests []types.BatchRequest, configs ...types.Config) (*types.BatchResponse, error) {
+func (c *rpcShiroClient) CallBatch(ctx context.Context, requests []types.CallBatchRequest, configs ...types.Config) (*types.CallBatchResponse, error) {
 	ctx, span := c.tracer.Start(ctx, "sdk:CallBatch")
 	defer span.End()
 	opt, err := c.applyConfigs(configs...)
@@ -71,7 +72,7 @@ func (c *rpcShiroClient) CallBatch(ctx context.Context, requests []types.BatchRe
 		var rpcErr *jsonRPCError
 		if errors.As(err, &rpcErr) && rpcErr.code == jsonRPCCodeMethodNotFound {
 			return nil, fmt.Errorf("%w: the gateway does not know CallBatch (it needs luthersystems/substrate#521): %s",
-				types.ErrBatchNotSupported, rpcErr.message)
+				types.ErrCallBatchNotSupported, rpcErr.message)
 		}
 		return nil, err
 	}
@@ -89,6 +90,24 @@ func (c *rpcShiroClient) CallBatch(ctx context.Context, requests []types.BatchRe
 		return nil, err
 	}
 
+	failed := br.FailedIndex()
+	if res.errorLevel == rpc.ErrorLevelPhylum {
+		if data, ok := res.data.(map[string]interface{}); ok {
+			if idx, ok := data["failed_index"].(float64); ok && int(idx) >= 0 && int(idx) < len(br.Responses) {
+				failed = int(idx)
+			}
+		}
+	}
+	switch {
+	case br.Committed && (failed >= 0 || res.errorLevel != rpc.ErrorLevelNoError):
+		// A committed batch has no failed request.  Neither success nor a
+		// clean failure can be claimed from a contradictory answer.
+		return nil, fmt.Errorf("ShiroClient.CallBatch: gateway reported the batch committed (txid=%s) with a failed request", br.TxID)
+	case res.errorLevel == rpc.ErrorLevelPhylum && failed < 0:
+		return nil, errors.New("ShiroClient.CallBatch: batch not committed, but no request reported an error")
+	}
+
+	// Every check passed: publish the result.
 	if br.Committed {
 		txctx.SetTransactionDetails(ctx, txctx.TransactionDetails{TransactionID: br.TxID, CommitBlockNum: br.CommitBlockNum, MaxSimBlockNum: br.MaxSimBlockNum})
 	}
@@ -97,41 +116,23 @@ func (c *rpcShiroClient) CallBatch(ctx context.Context, requests []types.BatchRe
 			opt.ResponseReceiver(r)
 		}
 	}
-
-	if res.errorLevel == rpc.ErrorLevelNoError {
-		if failed := br.FailedIndex(); failed >= 0 {
-			// A gateway never reports success for a batch with a failed
-			// request; refuse to present one as committed if it does.
-			return br, batchError(br, failed)
-		}
-		return br, nil
+	if failed >= 0 {
+		return br, batchError(br, failed)
 	}
-
-	if br.Committed {
-		return nil, errors.New("ShiroClient.CallBatch: a failed batch was reported committed")
-	}
-	failed := br.FailedIndex()
-	if data, ok := res.data.(map[string]interface{}); ok {
-		if idx, ok := data["failed_index"].(float64); ok && int(idx) >= 0 && int(idx) < len(br.Responses) {
-			failed = int(idx)
-		}
-	}
-	if failed < 0 {
-		return br, errors.New("ShiroClient.CallBatch: batch not committed, but no request reported an error")
-	}
-	return br, batchError(br, failed)
+	return br, nil
 }
 
-func batchError(br *types.BatchResponse, failed int) error {
-	return &types.BatchError{
+func batchError(br *types.CallBatchResponse, failed int) error {
+	return &types.CallBatchError{
 		Index: failed,
 		ID:    br.IDs[failed],
 		Err:   br.Responses[failed].Error(),
 	}
 }
 
-// batchRequestsJSON renders requests as the gateway's "requests" parameter.
-func batchRequestsJSON(requests []types.BatchRequest) ([]interface{}, error) {
+// batchRequestsJSON renders requests as the gateway's "requests" parameter,
+// rejecting what the gateway would reject for the whole batch.
+func batchRequestsJSON(requests []types.CallBatchRequest) ([]interface{}, error) {
 	if len(requests) == 0 {
 		return nil, errors.New("ShiroClient.CallBatch: no requests")
 	}
@@ -140,15 +141,18 @@ func batchRequestsJSON(requests []types.BatchRequest) ([]interface{}, error) {
 		if r.Method == "" {
 			return nil, fmt.Errorf("ShiroClient.CallBatch: request %d has no method", i)
 		}
-		params := r.Params
-		if params == nil {
-			params = []interface{}{}
+		params, err := batchParamsJSON(r.Params)
+		if err != nil {
+			return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: %w", i, err)
 		}
 		elem := map[string]interface{}{
 			"method": r.Method,
 			"params": params,
 		}
 		if r.ID != nil {
+			if !validBatchID(r.ID) {
+				return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: id must be a string or a number, not %T", i, r.ID)
+			}
 			elem["id"] = r.ID
 		}
 		out[i] = elem
@@ -156,9 +160,42 @@ func batchRequestsJSON(requests []types.BatchRequest) ([]interface{}, error) {
 	return out, nil
 }
 
+// batchParamsJSON encodes a request's params.  The gateway accepts only an
+// array or an object; anything that encodes to null (nil, or a typed nil
+// slice, map or pointer) is sent as an empty array.
+func batchParamsJSON(params interface{}) (json.RawMessage, error) {
+	b, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("params: %w", err)
+	}
+	b = bytes.TrimSpace(b)
+	switch {
+	case bytes.Equal(b, []byte("null")):
+		return json.RawMessage("[]"), nil
+	case len(b) > 0 && (b[0] == '[' || b[0] == '{'):
+		return json.RawMessage(b), nil
+	default:
+		return nil, fmt.Errorf("params must encode to an array or an object, not %s", b)
+	}
+}
+
+// validBatchID reports whether id is a JSON-RPC id the gateway echoes: a
+// string or a number.
+func validBatchID(id interface{}) bool {
+	switch id.(type) {
+	case string, json.Number,
+		int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		float32, float64:
+		return true
+	default:
+		return false
+	}
+}
+
 // parseBatchResult decodes a CallBatch result: one Call-shaped result per
 // request, plus the "committed" flag.
-func parseBatchResult(res *rpcres, n int) (*types.BatchResponse, error) {
+func parseBatchResult(res *rpcres, n int) (*types.CallBatchResponse, error) {
 	elems, ok := res.result.([]interface{})
 	if !ok {
 		return nil, errors.New("ShiroClient.CallBatch expected an array result field")
@@ -170,7 +207,7 @@ func parseBatchResult(res *rpcres, n int) (*types.BatchResponse, error) {
 	if !ok {
 		return nil, errors.New("ShiroClient.CallBatch expected a boolean committed field")
 	}
-	br := &types.BatchResponse{
+	br := &types.CallBatchResponse{
 		Responses: make([]types.ShiroResponse, n),
 		IDs:       make([]interface{}, n),
 		Committed: committed,

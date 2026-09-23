@@ -157,18 +157,18 @@ func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...ty
 	return types.NewSuccessResponse(resp.ResultJSON, resp.TransactionID, 0, 0), nil
 }
 
-var _ types.BatchCaller = (*mockShiroClient)(nil)
+var _ types.CallBatcher = (*mockShiroClient)(nil)
 
-// CallBatch implements types.BatchCaller.  It always returns
-// types.ErrBatchNotSupported: the substrate plugin's RPC interface
+// CallBatch implements types.CallBatcher.  It always returns
+// types.ErrCallBatchNotSupported: the substrate plugin's RPC interface
 // (x/plugin.Substrate) has no batch method, and all-or-nothing semantics
 // cannot be faked here by issuing the requests as separate Calls.
 //
 // TODO(#38): route this through the plugin once a substrate release that
 // includes luthersystems/substrate#521 exposes batches over the plugin
 // interface, and bump SUBSTRATE_VERSION in common.config.mk.
-func (c *mockShiroClient) CallBatch(_ context.Context, _ []types.BatchRequest, _ ...types.Config) (*types.BatchResponse, error) {
-	return nil, fmt.Errorf("%w: the mock substrate plugin does not support batches yet", types.ErrBatchNotSupported)
+func (c *mockShiroClient) CallBatch(_ context.Context, _ []types.CallBatchRequest, _ ...types.Config) (*types.CallBatchResponse, error) {
+	return nil, fmt.Errorf("%w: the mock substrate plugin does not support batches yet", types.ErrCallBatchNotSupported)
 }
 
 // QueryInfo implements the ShiroClient interface.

@@ -62,42 +62,51 @@ all or nothing. Requests run in order and each sees the writes of the ones
 before it.
 
 ```go
-resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.BatchRequest{
+resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.CallBatchRequest{
   {Method: "create_account", Params: []interface{}{acct}, ID: "create"},
   {Method: "deposit", Params: []interface{}{deposit}},
 }, shiroclient.WithTransientData("key", secret))
-var batchErr *shiroclient.BatchError
+var batchErr *shiroclient.CallBatchError
 switch {
 case errors.As(err, &batchErr):
   // Nothing was committed. batchErr.Index / batchErr.ID name the failed
   // request and batchErr.Err is its error; resp.Responses holds every
   // request's response (the others carry a "batch aborted" error).
-case errors.Is(err, shiroclient.ErrOutcomeUnknown):
-  // The batch may still commit: check the ledger for the tx ID first.
-  txID, _ := shiroclient.OutcomeUnknownTxID(err)
-  reconcile(txID)
+case shiroclient.IsTimeoutError(err):
+  // The batch MAY have committed. Reconcile before running it again.
+  // With a gateway that includes substrate#515 the error also matches
+  // shiroclient.ErrOutcomeUnknown and carries the tx ID to look for.
+  txID, ok := shiroclient.OutcomeUnknownTxID(err) // ok is false on older gateways
+  reconcile(txID, ok)
 case err != nil:
-  // e.g. shiroclient.ErrBatchNotSupported: nothing ran.
+  // e.g. shiroclient.ErrCallBatchNotSupported: nothing ran.
 default:
   // resp.Committed, resp.TxID: one transaction for every request.
 }
 ```
 
 - **All or nothing.** If any request fails, nothing is committed, and
-  `CallBatch` returns the `BatchResponse` together with a `*BatchError`.
+  `CallBatch` returns the `CallBatchResponse` together with a `*CallBatchError`.
   A batch that only reads is not committed and has no `TxID`.
+- **Timeouts are not failures.** A timeout (`IsTimeoutError`) means the
+  batch may have committed. Never run it again, as a new batch or as
+  separate calls, without reconciling against the ledger first. A gateway
+  that includes
+  [luthersystems/substrate#515](https://github.com/luthersystems/substrate/pull/515)
+  also reports `ErrOutcomeUnknown` with the transaction ID
+  (`OutcomeUnknownTxID`). An older gateway sends only the timeout.
 - **Shared options.** Configs apply to the whole batch, as for `Call`:
   transient data is shared by every request, and every request runs
   against the same phylum version.
 - **Requirements.** The gateway must include
   [luthersystems/substrate#521](https://github.com/luthersystems/substrate/pull/521).
   An older gateway answers "method not found", and `CallBatch` returns an
-  error matching `shiroclient.ErrBatchNotSupported` without running
+  error matching `shiroclient.ErrCallBatchNotSupported` without running
   anything. The mock client does not support batches yet (the substrate
   plugin has no batch method) and returns the same error. `CallBatch` never
   falls back to separate `Call`s, which would not be atomic.
 - **Compatibility.** `CallBatch` is a package function over the optional
-  `shiroclient.BatchCaller` interface, so the `ShiroClient` interface is
+  `shiroclient.CallBatcher` interface, so the `ShiroClient` interface is
   unchanged.
 
 ---
