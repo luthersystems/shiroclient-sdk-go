@@ -1,0 +1,290 @@
+package shiroclient_test
+
+import (
+	"context"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
+)
+
+// batchGateway starts a gateway stub that answers every JSON-RPC request with
+// reply and records each request body it receives.  The replies are the
+// shapes the shiroclient gateway of luthersystems/substrate#521 produces
+// (cmd/shiroclient/cmd/gateway_batch_test.go there).
+func batchGateway(t *testing.T, reply string) (shiroclient.ShiroClient, <-chan map[string]interface{}, *int32) {
+	t.Helper()
+	got := make(chan map[string]interface{}, 8)
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		var req map[string]interface{}
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		got <- req
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, reply)
+	}))
+	t.Cleanup(srv.Close)
+	client := shiroclient.NewRPC([]shiroclient.Config{
+		shiroclient.WithEndpoint(srv.URL),
+		shiroclient.WithHTTPClient(srv.Client()),
+	})
+	return client, got, &hits
+}
+
+const batchCommitted = `{"jsonrpc":"2.0","id":"batch-1",
+ "result":{"error_level":0,"code":null,"message":null,"data":null,"committed":true,
+   "result":[{"id":"r1","error_level":0,"result":{"key":"a"},"code":null,"message":null,"data":null},
+             {"id":1,"error_level":0,"result":"1","code":null,"message":null,"data":null}]},
+ "$commit_tx_id":"tx-batch","$com_block_num":"12","$sim_block_num":"11"}`
+
+const batchSpoiled = `{"jsonrpc":"2.0","id":"batch-1",
+ "result":{"error_level":2,"committed":false,"code":-32000,
+   "message":"batch not committed: request 1 failed: nope","data":{"failed_index":1},
+   "result":[{"id":"p","error_level":2,"result":null,"code":-32000,"message":"Server error","data":{"batch_aborted":true,"failed_id":"f"}},
+             {"id":"f","error_level":2,"result":null,"code":-32000,"message":"nope","data":"nope"},
+             {"id":"q","error_level":2,"result":null,"code":-32000,"message":"Server error","data":{"batch_aborted":true,"failed_id":"f"}}]}}`
+
+const batchReadOnly = `{"jsonrpc":"2.0","id":"batch-1",
+ "result":{"error_level":0,"code":null,"message":null,"data":null,"committed":false,
+   "result":[{"id":0,"error_level":0,"result":"1","code":null,"message":null,"data":null}]},
+ "$commit_tx_id":"","$com_block_num":"0","$sim_block_num":"7"}`
+
+const batchOutcomeUnknown = `{"jsonrpc":"2.0","id":"batch-1",
+ "result":{"error_level":1,"result":null,"code":1,
+   "message":"transaction outcome unknown: txid=tx-amb: transaction timeout",
+   "data":{"outcome":"unknown","tx_id":"tx-amb"}}}`
+
+const oldGateway = `{"jsonrpc":"2.0","id":"batch-1","error":{"code":-32601,"message":"method not found"}}`
+
+func TestCallBatchCommitted(t *testing.T) {
+	client, got, _ := batchGateway(t, batchCommitted)
+
+	resp, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.BatchRequest{
+		{Method: "put", Params: []interface{}{"a", "1"}, ID: "r1"},
+		{Method: "get"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	assert.True(t, resp.Committed)
+	assert.Equal(t, "tx-batch", resp.TxID)
+	assert.Equal(t, uint64(12), resp.CommitBlockNum)
+	assert.Equal(t, uint64(11), resp.MaxSimBlockNum)
+	assert.Equal(t, -1, resp.FailedIndex())
+	assert.Equal(t, []interface{}{"r1", float64(1)}, resp.IDs)
+	require.Len(t, resp.Responses, 2)
+	for i, r := range resp.Responses {
+		require.Nil(t, r.Error(), "request %d", i)
+		assert.Equal(t, "tx-batch", r.TransactionID(), "every request shares the batch's one transaction")
+	}
+	var first map[string]string
+	require.NoError(t, resp.Responses[0].UnmarshalTo(&first))
+	assert.Equal(t, map[string]string{"key": "a"}, first)
+	assert.JSONEq(t, `"1"`, string(resp.Responses[1].ResultJSON()))
+
+	req := <-got
+	assert.Equal(t, "2.0", req["jsonrpc"])
+	assert.Equal(t, "CallBatch", req["method"])
+	params := req["params"].(map[string]interface{})
+	assert.Equal(t, []interface{}{
+		map[string]interface{}{"method": "put", "params": []interface{}{"a", "1"}, "id": "r1"},
+		// A missing id is left to the server (it uses the index); missing
+		// params are sent as an empty array, which the gateway requires.
+		map[string]interface{}{"method": "get", "params": []interface{}{}},
+	}, params["requests"])
+	assert.Equal(t, map[string]interface{}{}, params["transient"])
+}
+
+func TestCallBatchResponseReceiver(t *testing.T) {
+	client, _, _ := batchGateway(t, batchCommitted)
+	var received []shiroclient.ShiroResponse
+	_, err := shiroclient.CallBatch(context.Background(), client,
+		[]shiroclient.BatchRequest{{Method: "put"}, {Method: "get"}},
+		shiroclient.WithResponseReceiver(func(r shiroclient.ShiroResponse) { received = append(received, r) }))
+	require.NoError(t, err)
+	require.Len(t, received, 2, "the receiver sees every request's response")
+}
+
+func TestCallBatchFailureCommitsNothing(t *testing.T) {
+	client, _, _ := batchGateway(t, batchSpoiled)
+
+	resp, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.BatchRequest{
+		{Method: "put", ID: "p"},
+		{Method: "failwrite", ID: "f"},
+		{Method: "put", ID: "q"},
+	})
+	require.Error(t, err)
+
+	var batchErr *shiroclient.BatchError
+	require.True(t, errors.As(err, &batchErr), "got %T: %v", err, err)
+	assert.Equal(t, 1, batchErr.Index)
+	assert.Equal(t, "f", batchErr.ID)
+	require.NotNil(t, batchErr.Err)
+	assert.Equal(t, -32000, batchErr.Err.Code())
+	assert.Equal(t, "nope", batchErr.Err.Message())
+	assert.JSONEq(t, `"nope"`, string(batchErr.Err.DataJSON()))
+	assert.Contains(t, err.Error(), "batch not committed")
+	assert.Contains(t, err.Error(), "request 1")
+	assert.True(t, errors.As(fmt.Errorf("wrapped: %w", err), &batchErr))
+	assert.False(t, errors.Is(err, shiroclient.ErrOutcomeUnknown))
+	assert.False(t, errors.Is(err, shiroclient.ErrBatchNotSupported))
+
+	// The per-request results are still returned, so a caller can see why.
+	require.NotNil(t, resp)
+	assert.False(t, resp.Committed)
+	assert.Empty(t, resp.TxID)
+	assert.Equal(t, 1, resp.FailedIndex())
+	require.Len(t, resp.Responses, 3)
+	for i, r := range resp.Responses {
+		require.NotNil(t, r.Error(), "request %d: no request of a spoiled batch succeeds", i)
+		assert.Empty(t, r.TransactionID(), "request %d", i)
+		failedID, aborted := shiroclient.BatchAborted(r.Error())
+		assert.Equal(t, i != 1, aborted, "request %d", i)
+		if aborted {
+			assert.Equal(t, "f", failedID, "request %d names the request that failed", i)
+		}
+	}
+}
+
+func TestCallBatchReadOnlyIsNotCommitted(t *testing.T) {
+	client, _, _ := batchGateway(t, batchReadOnly)
+	resp, err := shiroclient.CallBatch(context.Background(), client,
+		[]shiroclient.BatchRequest{{Method: "get", Params: []interface{}{"a"}}})
+	require.NoError(t, err)
+	assert.False(t, resp.Committed)
+	assert.Empty(t, resp.TxID)
+	assert.Equal(t, -1, resp.FailedIndex())
+	assert.JSONEq(t, `"1"`, string(resp.Responses[0].ResultJSON()))
+}
+
+func TestCallBatchOutcomeUnknown(t *testing.T) {
+	client, _, _ := batchGateway(t, batchOutcomeUnknown)
+	resp, err := shiroclient.CallBatch(context.Background(), client,
+		[]shiroclient.BatchRequest{{Method: "put"}, {Method: "put"}})
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.True(t, errors.Is(err, shiroclient.ErrOutcomeUnknown))
+	assert.True(t, shiroclient.IsTimeoutError(err))
+	txID, ok := shiroclient.OutcomeUnknownTxID(err)
+	assert.True(t, ok)
+	assert.Equal(t, "tx-amb", txID)
+	var batchErr *shiroclient.BatchError
+	assert.False(t, errors.As(err, &batchErr), "an unknown outcome is not a known failure")
+}
+
+func TestCallBatchOldGateway(t *testing.T) {
+	client, _, hits := batchGateway(t, oldGateway)
+	resp, err := shiroclient.CallBatch(context.Background(), client,
+		[]shiroclient.BatchRequest{{Method: "put"}})
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.True(t, errors.Is(err, shiroclient.ErrBatchNotSupported), "got %v", err)
+	assert.Equal(t, int32(1), atomic.LoadInt32(hits), "the batch is not retried as single calls")
+}
+
+func TestCallBatchOtherJSONRPCError(t *testing.T) {
+	client, _, _ := batchGateway(t, `{"jsonrpc":"2.0","id":"batch-1","error":{"code":-32602,"message":"invalid params"}}`)
+	_, err := shiroclient.CallBatch(context.Background(), client,
+		[]shiroclient.BatchRequest{{Method: "put"}})
+	require.Error(t, err)
+	assert.False(t, errors.Is(err, shiroclient.ErrBatchNotSupported))
+	assert.Contains(t, err.Error(), "invalid params")
+}
+
+func TestCallBatchForwardsOptions(t *testing.T) {
+	client, got, _ := batchGateway(t, batchCommitted)
+	_, err := shiroclient.CallBatch(context.Background(), client,
+		[]shiroclient.BatchRequest{
+			{Method: "put", Params: map[string]interface{}{"k": "v"}},
+			{Method: "get", ID: 7},
+		},
+		shiroclient.WithoutTargetEndpoints([]string{"peer-restoring"}),
+		shiroclient.WithTargetEndpoints([]string{"peer0"}),
+		shiroclient.WithTransientData("tkey", []byte("secret")),
+		shiroclient.WithMSPFilter([]string{"Org1MSP"}),
+		shiroclient.WithMinEndorsers(2),
+		shiroclient.WithCreator("Org2MSP"),
+		shiroclient.WithDependentTxID("tx-dep"),
+		shiroclient.WithDependentBlock("5"),
+		shiroclient.WithPhylumVersion("v1.2.3"),
+		shiroclient.WithDisableWritePolling(true),
+		shiroclient.WithTimestampGenerator(func(context.Context) string { return "2026-01-02T03:04:05Z" }),
+	)
+	require.NoError(t, err)
+
+	params := (<-got)["params"].(map[string]interface{})
+	assert.Equal(t, []interface{}{"peer-restoring"}, params["not_target_endpoints"])
+	assert.Equal(t, []interface{}{"peer0"}, params["target_endpoints"])
+	assert.Equal(t, []interface{}{"Org1MSP"}, params["msp_filter"])
+	assert.EqualValues(t, 2, params["min_endorsers"])
+	assert.Equal(t, "Org2MSP", params["creator_msp_id"])
+	assert.Equal(t, "tx-dep", params["dependent_txid"])
+	assert.Equal(t, "5", params["dependent_block"])
+	assert.Equal(t, "v1.2.3", params["phylum_version"])
+	assert.Equal(t, true, params["disable_write_polling"])
+	assert.Equal(t, map[string]interface{}{
+		"tkey":               hex.EncodeToString([]byte("secret")),
+		"timestamp_override": hex.EncodeToString([]byte("2026-01-02T03:04:05Z")),
+	}, params["transient"], "transient data is sent once and shared by every request")
+	assert.Equal(t, []interface{}{
+		map[string]interface{}{"method": "put", "params": map[string]interface{}{"k": "v"}},
+		map[string]interface{}{"method": "get", "params": []interface{}{}, "id": float64(7)},
+	}, params["requests"])
+	assert.NotContains(t, params, "method", "a batch has no top-level phylum method")
+}
+
+func TestCallBatchRejectsInvalidRequests(t *testing.T) {
+	client, _, hits := batchGateway(t, batchCommitted)
+	for name, reqs := range map[string][]shiroclient.BatchRequest{
+		"empty":          nil,
+		"missing method": {{Method: "put"}, {Params: []interface{}{}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := shiroclient.CallBatch(context.Background(), client, reqs)
+			require.Error(t, err)
+		})
+	}
+	assert.Equal(t, int32(0), atomic.LoadInt32(hits), "an invalid batch is never sent")
+}
+
+// plainClient implements ShiroClient but not BatchCaller, as a third-party
+// implementation of the interface does.
+type plainClient struct{ shiroclient.ShiroClient }
+
+func TestCallBatchClientWithoutSupport(t *testing.T) {
+	_, err := shiroclient.CallBatch(context.Background(), plainClient{},
+		[]shiroclient.BatchRequest{{Method: "put"}})
+	require.True(t, errors.Is(err, shiroclient.ErrBatchNotSupported), "got %v", err)
+}
+
+func TestCallBatchMockNotSupported(t *testing.T) {
+	client, err := shiroclient.NewMock(nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	initClient(t, client, testPhylum)
+
+	_, ok := client.(shiroclient.BatchCaller)
+	require.True(t, ok, "the mock client implements BatchCaller")
+	_, err = shiroclient.CallBatch(context.Background(), client,
+		[]shiroclient.BatchRequest{{Method: "healthcheck"}})
+	require.True(t, errors.Is(err, shiroclient.ErrBatchNotSupported), "got %v", err)
+}

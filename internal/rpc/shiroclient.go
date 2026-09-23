@@ -42,6 +42,7 @@ type rpcres struct {
 	code        interface{}
 	message     interface{}
 	data        interface{}
+	committed   interface{} // CallBatch only
 	txID        string
 	comBlockNum uint64
 	simBlockNum uint64
@@ -301,6 +302,9 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 
 	resultArb, ok := resCurly["result"]
 	if !ok {
+		if rpcErr := jsonRPCErrorOf(resCurly["error"]); rpcErr != nil {
+			return nil, fmt.Errorf("ShiroClient.reqres expected a result field: %w", rpcErr)
+		}
 		return nil, errors.New("ShiroClient.reqres expected a result field")
 	}
 
@@ -352,6 +356,7 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 		code:        code,
 		message:     message,
 		data:        data,
+		committed:   resultCurly["committed"],
 		txID:        txID,
 		comBlockNum: comBlockNum,
 		simBlockNum: simBlockNum,
@@ -546,15 +551,9 @@ func (c *rpcShiroClient) Init(ctx context.Context, phylum string, configs ...typ
 	}
 }
 
-// Call implements the ShiroClient interface.
-func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...types.Config) (types.ShiroResponse, error) {
-	ctx, span := c.tracer.Start(ctx, "sdk:Call "+method)
-	defer span.End()
-	opt, err := c.applyConfigs(configs...)
-	if err != nil {
-		return nil, err
-	}
-
+// callOptionParams builds the gateway parameters that Call and CallBatch
+// share: the hex-encoded transient data and the per-call options.
+func callOptionParams(ctx context.Context, opt *types.RequestOptions) map[string]interface{} {
 	transientJSON := make(map[string]interface{})
 
 	for k, v := range opt.Transient {
@@ -566,8 +565,6 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 	}
 
 	params := map[string]interface{}{
-		"method":    method,
-		"params":    opt.Params,
 		"transient": transientJSON,
 	}
 	if opt.DependentTxID != "" {
@@ -591,32 +588,42 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 	} else {
 		params["cc_fetchurl_proxy"] = ""
 	}
+	if len(opt.MspFilter) > 0 {
+		params["msp_filter"] = opt.MspFilter
+	}
+	if opt.MinEndorsers > 0 {
+		params["min_endorsers"] = opt.MinEndorsers
+	}
+	if opt.Creator != "" {
+		params["creator_msp_id"] = opt.Creator
+	}
+	if len(opt.TargetEndpoints) > 0 {
+		params["target_endpoints"] = opt.TargetEndpoints
+	}
+	if len(opt.NotTargetEndpoints) > 0 {
+		params["not_target_endpoints"] = opt.NotTargetEndpoints
+	}
+	return params
+}
+
+// Call implements the ShiroClient interface.
+func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...types.Config) (types.ShiroResponse, error) {
+	ctx, span := c.tracer.Start(ctx, "sdk:Call "+method)
+	defer span.End()
+	opt, err := c.applyConfigs(configs...)
+	if err != nil {
+		return nil, err
+	}
+
+	params := callOptionParams(ctx, opt)
+	params["method"] = method
+	params["params"] = opt.Params
 
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      opt.ID,
 		"method":  rpc.MethodCall,
 		"params":  params,
-	}
-
-	if len(opt.MspFilter) > 0 {
-		req["params"].(map[string]interface{})["msp_filter"] = opt.MspFilter
-	}
-
-	if opt.MinEndorsers > 0 {
-		req["params"].(map[string]interface{})["min_endorsers"] = opt.MinEndorsers
-	}
-
-	if opt.Creator != "" {
-		req["params"].(map[string]interface{})["creator_msp_id"] = opt.Creator
-	}
-
-	if len(opt.TargetEndpoints) > 0 {
-		req["params"].(map[string]interface{})["target_endpoints"] = opt.TargetEndpoints
-	}
-
-	if len(opt.NotTargetEndpoints) > 0 {
-		req["params"].(map[string]interface{})["not_target_endpoints"] = opt.NotTargetEndpoints
 	}
 
 	res, err := c.reqres(ctx, req, opt)

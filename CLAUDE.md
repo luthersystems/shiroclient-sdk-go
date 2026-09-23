@@ -39,6 +39,8 @@ The mock client requires the substrate plugin binary. Tests will fail without it
 - **RPC** (`internal/rpc/`) — HTTP JSON-RPC 2.0 client for production use
 - **Mock** (`internal/mock/`) — in-process ledger via HashiCorp go-plugin for testing
 
+Capabilities added after the interface shipped are OPTIONAL interfaces reached by a type assertion from a package-level function, so adding one never breaks a third-party `ShiroClient`: `RemoteHealthCheck` (`smartHealthCheck`) and `CallBatch` (`types.BatchCaller`, in `internal/types/batch.go`).
+
 ### Public API Pattern
 
 The `shiroclient/` package re-exports internal types as type aliases (`ShiroClient = types.ShiroClient`, etc.) to provide a stable public API while keeping implementation details internal. Constructors: `NewRPC(configs)` and `NewMock(configs, opts...)`.

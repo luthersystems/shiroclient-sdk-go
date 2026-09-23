@@ -55,6 +55,53 @@ Because the SDK launches the plugin as a child process that inherits the parent'
 
 ---
 
+## ⚛️ Atomic Multi-Call (`CallBatch`)
+
+`shiroclient.CallBatch` runs several phylum methods as **one** transaction,
+all or nothing. Requests run in order and each sees the writes of the ones
+before it.
+
+```go
+resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.BatchRequest{
+  {Method: "create_account", Params: []interface{}{acct}, ID: "create"},
+  {Method: "deposit", Params: []interface{}{deposit}},
+}, shiroclient.WithTransientData("key", secret))
+var batchErr *shiroclient.BatchError
+switch {
+case errors.As(err, &batchErr):
+  // Nothing was committed. batchErr.Index / batchErr.ID name the failed
+  // request and batchErr.Err is its error; resp.Responses holds every
+  // request's response (the others carry a "batch aborted" error).
+case errors.Is(err, shiroclient.ErrOutcomeUnknown):
+  // The batch may still commit: check the ledger for the tx ID first.
+  txID, _ := shiroclient.OutcomeUnknownTxID(err)
+  reconcile(txID)
+case err != nil:
+  // e.g. shiroclient.ErrBatchNotSupported: nothing ran.
+default:
+  // resp.Committed, resp.TxID: one transaction for every request.
+}
+```
+
+- **All or nothing.** If any request fails, nothing is committed, and
+  `CallBatch` returns the `BatchResponse` together with a `*BatchError`.
+  A batch that only reads is not committed and has no `TxID`.
+- **Shared options.** Configs apply to the whole batch, as for `Call`:
+  transient data is shared by every request, and every request runs
+  against the same phylum version.
+- **Requirements.** The gateway must include
+  [luthersystems/substrate#521](https://github.com/luthersystems/substrate/pull/521).
+  An older gateway answers "method not found", and `CallBatch` returns an
+  error matching `shiroclient.ErrBatchNotSupported` without running
+  anything. The mock client does not support batches yet (the substrate
+  plugin has no batch method) and returns the same error. `CallBatch` never
+  falls back to separate `Call`s, which would not be atomic.
+- **Compatibility.** `CallBatch` is a package function over the optional
+  `shiroclient.BatchCaller` interface, so the `ShiroClient` interface is
+  unchanged.
+
+---
+
 ## 🔁 Batch Driver
 
 The `batch` package allows polling for time-based requests from ELPS _common operations scripts_.

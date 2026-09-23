@@ -21,6 +21,10 @@ const (
 	// MethodQueryBlock is used to call the QueryBlock method which returns the
 	// block information.
 	MethodQueryBlock = "QueryBlock"
+	// MethodCallBatch is used to call the CallBatch method which executes
+	// several phylum methods as one all-or-nothing transaction.  Gateways
+	// older than luthersystems/substrate#521 answer "method not found".
+	MethodCallBatch = "CallBatch"
 )
 
 const (
