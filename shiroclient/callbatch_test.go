@@ -358,6 +358,11 @@ func TestCallBatchRequestIDs(t *testing.T) {
 		"array":  []interface{}{1},
 		"bool":   true,
 		"struct": struct{}{},
+		// Above 2^53 the gateway's float64 decoding would change the id.
+		"int above 2^53":     int64(1)<<53 + 1,
+		"uint above 2^53":    uint64(1) << 60,
+		"json.Number > 2^53": json.Number("9007199254740993"),
+		"bad json.Number":    json.Number("abc"),
 	} {
 		t.Run("rejects "+name, func(t *testing.T) {
 			_, err := shiroclient.CallBatch(context.Background(), client,
@@ -374,7 +379,10 @@ func TestCallBatchRequestIDs(t *testing.T) {
 	})
 	require.NoError(t, err)
 	<-got
-	for _, id := range []interface{}{int64(1), uint8(2), float64(1.5), json.Number("4")} {
+	type orderID string
+	type seq int32
+	for _, id := range []interface{}{int64(1), uint8(2), float64(1.5), json.Number("4"),
+		int64(1) << 53, orderID("o-1"), seq(7)} {
 		_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
 			{Method: "a", ID: id}, {Method: "b"},
 		})

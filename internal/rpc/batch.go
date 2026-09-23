@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"reflect"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/x/rpc"
@@ -151,7 +153,7 @@ func batchRequestsJSON(requests []types.CallBatchRequest) ([]interface{}, error)
 		}
 		if r.ID != nil {
 			if !validBatchID(r.ID) {
-				return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: id must be a string or a number, not %T", i, r.ID)
+				return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: id must be a string, or a number within ±2^53 (the gateway decodes ids as float64); got %T %v", i, r.ID, r.ID)
 			}
 			elem["id"] = r.ID
 		}
@@ -182,16 +184,34 @@ func batchParamsJSON(params interface{}) (json.RawMessage, error) {
 // validBatchID reports whether id is a JSON-RPC id the gateway echoes: a
 // string or a number.
 func validBatchID(id interface{}) bool {
-	switch id.(type) {
-	case string, json.Number,
-		int, int8, int16, int32, int64,
-		uint, uint8, uint16, uint32, uint64,
-		float32, float64:
+	if n, ok := id.(json.Number); ok {
+		if i, err := n.Int64(); err == nil {
+			return i >= -maxExactBatchID && i <= maxExactBatchID
+		}
+		f, err := n.Float64()
+		return err == nil && !math.IsInf(f, 0) && !math.IsNaN(f)
+	}
+	// Kinds, not exact types, so a caller's own id type (type OrderID
+	// string) is accepted. Integers are limited to +/-2^53 because the
+	// gateway decodes ids as float64: a larger id would come back changed.
+	v := reflect.ValueOf(id)
+	switch v.Kind() {
+	case reflect.String:
 		return true
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() >= -maxExactBatchID && v.Int() <= maxExactBatchID
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return v.Uint() <= maxExactBatchID
+	case reflect.Float32, reflect.Float64:
+		f := v.Float()
+		return !math.IsInf(f, 0) && !math.IsNaN(f)
 	default:
 		return false
 	}
 }
+
+// maxExactBatchID is the largest integer a float64 holds exactly (2^53).
+const maxExactBatchID = 1 << 53
 
 // parseBatchResult decodes a CallBatch result: one Call-shaped result per
 // request, plus the "committed" flag.
