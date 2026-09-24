@@ -16,6 +16,7 @@ import (
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/private"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -25,6 +26,50 @@ import (
 
 // BootstrapProperty is the property name used to bootstrap the phylum.
 const BootstrapProperty = "bootstrap-cfg"
+
+// ReasonTxOutcomeUnknown is the ErrorInfo reason for a transaction that may still
+// commit. Check the ledger for its transaction ID before retrying.
+const ReasonTxOutcomeUnknown = "TX_OUTCOME_UNKNOWN"
+
+const outcomeUnknownDomain = "shiroclient.luthersystems.com"
+
+// outcomeUnknownStatusError preserves both the legacy gRPC status and its cause.
+type outcomeUnknownStatusError struct {
+	status *status.Status
+	cause  error
+}
+
+func (e *outcomeUnknownStatusError) Error() string {
+	return e.status.Err().Error()
+}
+
+func (e *outcomeUnknownStatusError) GRPCStatus() *status.Status {
+	return e.status
+}
+
+func (e *outcomeUnknownStatusError) Unwrap() error {
+	return e.cause
+}
+
+// AmbiguousTxID returns the transaction ID for an outcome-unknown error, including
+// wrapped errors and gRPC status details received across a gRPC boundary. The
+// transaction may still commit; check the ledger for the ID before retrying.
+// The ID may be empty even when ok is true. Old servers never report this state.
+func AmbiguousTxID(err error) (txID string, ok bool) {
+	if txID, ok := shiroclient.OutcomeUnknownTxID(err); ok {
+		return txID, true
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		return "", false
+	}
+	for _, detail := range st.Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Reason == ReasonTxOutcomeUnknown && info.Domain == outcomeUnknownDomain {
+			return info.Metadata["tx_id"], true
+		}
+	}
+	return "", false
+}
 
 // Config is an alias (not a distinct type)
 type Config = shiroclient.Config
@@ -172,8 +217,27 @@ func (s *Client) sdkCall(ctx context.Context, cmd string, params interface{}, re
 	resp, err := s.rpc.Call(ctx, cmd, configs...)
 	if err != nil {
 		if shiroclient.IsTimeoutError(err) {
-			s.logEntry(ctx).WithError(err).Errorf("shiroclient timeout")
-			return status.Error(codes.Unavailable, "timeout in blockchain network")
+			txID, unknown := shiroclient.OutcomeUnknownTxID(err)
+			log := s.logEntry(ctx).WithError(err)
+			if txID != "" {
+				log = log.WithField("tx_id", txID)
+			}
+			log.Errorf("shiroclient timeout")
+			if !unknown {
+				return status.Error(codes.Unavailable, "timeout in blockchain network")
+			}
+			st := status.New(codes.Unavailable, "timeout in blockchain network")
+			detailed, detailErr := st.WithDetails(&errdetails.ErrorInfo{
+				Reason:   ReasonTxOutcomeUnknown,
+				Domain:   outcomeUnknownDomain,
+				Metadata: map[string]string{"tx_id": txID},
+			})
+			if detailErr != nil {
+				log.WithError(detailErr).Error("failed to encode transaction outcome details")
+			} else {
+				st = detailed
+			}
+			return &outcomeUnknownStatusError{status: st, cause: err}
 		}
 		return err
 	}

@@ -55,6 +55,75 @@ Because the SDK launches the plugin as a child process that inherits the parent'
 
 ---
 
+## ⚛️ Atomic Multi-Call (`CallBatch`)
+
+`shiroclient.CallBatch` runs several phylum methods as **one** transaction,
+all or nothing. Requests run in order and each sees the writes of the ones
+before it.
+
+```go
+resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.CallBatchRequest{
+  {Method: "deposit", Params: []interface{}{aliceDeposit}, ID: "alice",
+    Transient: map[string][]byte{"secret": aliceSecret}},
+  {Method: "deposit", Params: []interface{}{bobDeposit}, ID: "bob",
+    Transient: map[string][]byte{"secret": bobSecret}},
+}, shiroclient.WithTransientData("key", sharedKey)) // shared by both
+var batchErr *shiroclient.CallBatchError
+switch {
+case errors.As(err, &batchErr):
+  // Nothing was committed. batchErr.Index / batchErr.ID name the failed
+  // request and batchErr.Err is its error; resp.Responses holds every
+  // request's response (the others carry a "batch aborted" error).
+case shiroclient.IsTimeoutError(err):
+  // The batch MAY have committed. Reconcile before running it again.
+  // With a gateway that includes substrate#515 the error also matches
+  // shiroclient.ErrOutcomeUnknown and carries the tx ID to look for.
+  txID, ok := shiroclient.OutcomeUnknownTxID(err) // ok is false on older gateways
+  reconcile(txID, ok)
+case err != nil:
+  // e.g. shiroclient.ErrCallBatchNotSupported: nothing ran.
+default:
+  // resp.Committed, resp.TxID: one transaction for every request.
+}
+```
+
+- **All or nothing.** If any request fails, nothing is committed, and
+  `CallBatch` returns the `CallBatchResponse` together with a `*CallBatchError`.
+  A batch that only reads is not committed and has no `TxID`.
+- **Timeouts are not failures.** A timeout (`IsTimeoutError`) means the
+  batch may have committed. Never run it again, as a new batch or as
+  separate calls, without reconciling against the ledger first. A gateway
+  that includes
+  [luthersystems/substrate#515](https://github.com/luthersystems/substrate/pull/515)
+  also reports `ErrOutcomeUnknown` with the transaction ID
+  (`OutcomeUnknownTxID`). An older gateway sends only the timeout.
+- **Shared options.** Configs apply to the whole batch, as for `Call`:
+  transient data from `WithTransientData` is shared by every request, and
+  every request runs against the same phylum version.
+- **Per-request transient data.** `CallBatchRequest.Transient` is seen only
+  by its own request: a transient read there finds the request's key first,
+  then the shared one, so two deposits can each carry their own `"secret"`.
+  This isolates the requests from each other. It does **not** hide the data
+  from endorsing peers: Fabric sends all of it to every endorser, as for
+  `Call`. Keys starting with `$batch/` are reserved and rejected (also in
+  `Call`), as is an empty per-request key; nothing is sent. Per-request
+  transient data needs substrate with luthersystems/substrate#521. A gateway
+  without #521 has no `CallBatch` at all (`ErrCallBatchNotSupported`). A
+  #521 gateway talking to an older chaincode refuses the batch with an
+  error and orders nothing.
+- **Requirements.** The gateway must include
+  [luthersystems/substrate#521](https://github.com/luthersystems/substrate/pull/521).
+  An older gateway answers "method not found", and `CallBatch` returns an
+  error matching `shiroclient.ErrCallBatchNotSupported` without running
+  anything. The mock client does not support batches yet (the substrate
+  plugin has no batch method) and returns the same error. `CallBatch` never
+  falls back to separate `Call`s, which would not be atomic.
+- **Compatibility.** `CallBatch` is a package function over the optional
+  `shiroclient.CallBatcher` interface, so the `ShiroClient` interface is
+  unchanged.
+
+---
+
 ## 🔁 Batch Driver
 
 The `batch` package allows polling for time-based requests from ELPS _common operations scripts_.

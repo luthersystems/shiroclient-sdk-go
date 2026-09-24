@@ -42,6 +42,7 @@ type rpcres struct {
 	code        interface{}
 	message     interface{}
 	data        interface{}
+	committed   interface{} // CallBatch only
 	txID        string
 	comBlockNum uint64
 	simBlockNum uint64
@@ -53,6 +54,35 @@ type scError struct {
 	err     error
 	message string
 	code    int
+}
+
+// ErrOutcomeUnknown indicates that a submitted transaction may still commit.
+var ErrOutcomeUnknown = errors.New("shiroclient: transaction outcome unknown")
+
+// OutcomeUnknownError identifies a transaction whose outcome is unknown.
+// Check the ledger for TxID before retrying; the transaction may still commit.
+type OutcomeUnknownError struct {
+	TxID string
+}
+
+// Error implements error.
+func (e *OutcomeUnknownError) Error() string {
+	return fmt.Sprintf("%s: txid=%s", ErrOutcomeUnknown, e.TxID)
+}
+
+// Is matches ErrOutcomeUnknown.
+func (e *OutcomeUnknownError) Is(target error) bool {
+	return target == ErrOutcomeUnknown
+}
+
+// OutcomeUnknownTxID finds an outcome-unknown transaction through wrapped errors.
+// The ID may be empty even when ok is true. Old servers do not report this state.
+func OutcomeUnknownTxID(err error) (txID string, ok bool) {
+	var outcome *OutcomeUnknownError
+	if errors.As(err, &outcome) {
+		return outcome.TxID, true
+	}
+	return "", false
 }
 
 // Unwrap implements the Wrapper interface from the errors package.
@@ -78,14 +108,21 @@ func IsTimeoutError(err error) bool {
 // Returns an error object with the same detail message as the
 // ShiroClient error that was raised.
 func (r *rpcres) getShiroClientError() error {
+	var cause error
+	if data, ok := r.data.(map[string]interface{}); ok && data["outcome"] == "unknown" {
+		txID, _ := data["tx_id"].(string)
+		cause = &OutcomeUnknownError{TxID: txID}
+	}
 	message, ok := r.message.(string)
 	if !ok {
 		return &scError{
+			err:     cause,
 			message: "shiroclient error with no message",
 		}
 	}
 	code, _ := r.code.(float64)
 	return &scError{
+		err:     cause,
 		message: message,
 		code:    int(code),
 	}
@@ -265,6 +302,9 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 
 	resultArb, ok := resCurly["result"]
 	if !ok {
+		if rpcErr := jsonRPCErrorOf(resCurly["error"]); rpcErr != nil {
+			return nil, fmt.Errorf("ShiroClient.reqres expected a result field: %w", rpcErr)
+		}
 		return nil, errors.New("ShiroClient.reqres expected a result field")
 	}
 
@@ -316,6 +356,7 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 		code:        code,
 		message:     message,
 		data:        data,
+		committed:   resultCurly["committed"],
 		txID:        txID,
 		comBlockNum: comBlockNum,
 		simBlockNum: simBlockNum,
@@ -510,19 +551,25 @@ func (c *rpcShiroClient) Init(ctx context.Context, phylum string, configs ...typ
 	}
 }
 
-// Call implements the ShiroClient interface.
-func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...types.Config) (types.ShiroResponse, error) {
-	ctx, span := c.tracer.Start(ctx, "sdk:Call "+method)
-	defer span.End()
-	opt, err := c.applyConfigs(configs...)
-	if err != nil {
+// encodeTransient hex-encodes transient data for the gateway, rejecting the
+// reserved "$batch/" key prefix.
+func encodeTransient(transient map[string][]byte) (map[string]interface{}, error) {
+	if err := types.CheckTransientKeys(transient); err != nil {
 		return nil, err
 	}
-
-	transientJSON := make(map[string]interface{})
-
-	for k, v := range opt.Transient {
+	transientJSON := make(map[string]interface{}, len(transient))
+	for k, v := range transient {
 		transientJSON[k] = hex.EncodeToString(v)
+	}
+	return transientJSON, nil
+}
+
+// callOptionParams builds the gateway parameters that Call and CallBatch
+// share: the hex-encoded transient data and the per-call options.
+func callOptionParams(ctx context.Context, opt *types.RequestOptions) (map[string]interface{}, error) {
+	transientJSON, err := encodeTransient(opt.Transient)
+	if err != nil {
+		return nil, err
 	}
 
 	if opt.TimestampGenerator != nil {
@@ -530,8 +577,6 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 	}
 
 	params := map[string]interface{}{
-		"method":    method,
-		"params":    opt.Params,
 		"transient": transientJSON,
 	}
 	if opt.DependentTxID != "" {
@@ -555,32 +600,45 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 	} else {
 		params["cc_fetchurl_proxy"] = ""
 	}
+	if len(opt.MspFilter) > 0 {
+		params["msp_filter"] = opt.MspFilter
+	}
+	if opt.MinEndorsers > 0 {
+		params["min_endorsers"] = opt.MinEndorsers
+	}
+	if opt.Creator != "" {
+		params["creator_msp_id"] = opt.Creator
+	}
+	if len(opt.TargetEndpoints) > 0 {
+		params["target_endpoints"] = opt.TargetEndpoints
+	}
+	if len(opt.NotTargetEndpoints) > 0 {
+		params["not_target_endpoints"] = opt.NotTargetEndpoints
+	}
+	return params, nil
+}
+
+// Call implements the ShiroClient interface.
+func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...types.Config) (types.ShiroResponse, error) {
+	ctx, span := c.tracer.Start(ctx, "sdk:Call "+method)
+	defer span.End()
+	opt, err := c.applyConfigs(configs...)
+	if err != nil {
+		return nil, err
+	}
+
+	params, err := callOptionParams(ctx, opt)
+	if err != nil {
+		return nil, fmt.Errorf("ShiroClient.Call: %w", err)
+	}
+	params["method"] = method
+	params["params"] = opt.Params
 
 	req := map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      opt.ID,
 		"method":  rpc.MethodCall,
 		"params":  params,
-	}
-
-	if len(opt.MspFilter) > 0 {
-		req["params"].(map[string]interface{})["msp_filter"] = opt.MspFilter
-	}
-
-	if opt.MinEndorsers > 0 {
-		req["params"].(map[string]interface{})["min_endorsers"] = opt.MinEndorsers
-	}
-
-	if opt.Creator != "" {
-		req["params"].(map[string]interface{})["creator_msp_id"] = opt.Creator
-	}
-
-	if len(opt.TargetEndpoints) > 0 {
-		req["params"].(map[string]interface{})["target_endpoints"] = opt.TargetEndpoints
-	}
-
-	if len(opt.NotTargetEndpoints) > 0 {
-		req["params"].(map[string]interface{})["not_target_endpoints"] = opt.NotTargetEndpoints
 	}
 
 	res, err := c.reqres(ctx, req, opt)
