@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/go-hclog"
@@ -57,10 +58,15 @@ type MockShiroClient interface {
 }
 
 type mockShiroClient struct {
-	baseConfig  []types.Config
-	conn        *plugin.SubstrateConnection
+	baseConfig []types.Config
+	conn       *plugin.SubstrateConnection
+	// release gives back the plugin connection: it kills a private
+	// process, or drops a reference to a shared one.
+	release     func() error
 	tag         string
 	shiroPhylum string
+	closeOnce   sync.Once
+	closeErr    error
 }
 
 // flatten is the single choke point for every RPC-bound method (Init, Call,
@@ -224,17 +230,21 @@ func (c *mockShiroClient) SetCreatorWithAttributes(creator string, attrs map[str
 	return c.conn.GetSubstrate().SetCreatorWithAttributesMock(c.tag, creator, attrs)
 }
 
-// Close shuts down the mock backing database
+// Close shuts down the mock backing database and releases the plugin
+// connection: a private plugin process is stopped, a shared one is stopped
+// only once no other mock uses it. Calls after the first return the first
+// result.
 func (c *mockShiroClient) Close() error {
-	errMock := c.conn.GetSubstrate().CloseMock(c.tag)
-	errPlugin := c.conn.Close()
-	if errMock != nil {
-		return fmt.Errorf("failed to close mock client: %w", errMock)
-	}
-	if errPlugin != nil {
-		return fmt.Errorf("failed to close plugin: %w", errPlugin)
-	}
-	return nil
+	c.closeOnce.Do(func() {
+		errMock := c.conn.GetSubstrate().CloseMock(c.tag)
+		errPlugin := c.release()
+		if errMock != nil {
+			c.closeErr = fmt.Errorf("failed to close mock client: %w", errMock)
+		} else if errPlugin != nil {
+			c.closeErr = fmt.Errorf("failed to close plugin: %w", errPlugin)
+		}
+	})
+	return c.closeErr
 }
 
 func hcpLogLevel(mockLevel mockint.LogLevel) hclog.Level {
@@ -254,7 +264,8 @@ func hcpLogLevel(mockLevel mockint.LogLevel) hclog.Level {
 
 func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient, error) {
 	config := &mockint.Config{
-		LogWriter: os.Stdout,
+		LogWriter:         os.Stdout,
+		SharedIdleTimeout: mockint.DefaultSharedIdleTimeout,
 	}
 	for _, opt := range opts {
 		opt(config)
@@ -276,27 +287,52 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 		plugin.ConnectWithAttachStdamp(config.LogWriter),
 		plugin.ConnectWithLogOutput(config.LogWriter),
 	}
-	conn, err := plugin.NewSubstrateConnection(pluginOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("unable to connect to plugin: %w", err)
-	}
 	var snapshot []byte
 	if config.SnapshotReader != nil {
+		var err error
 		snapshot, err = io.ReadAll(config.SnapshotReader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read snapshot: %w", err)
 		}
 	}
-	var tag string
-	tag, err = conn.GetSubstrate().NewMockFrom(mockint.PhylumName, mockint.PhylumVersion, snapshot, plugin.MockOptions{
+	connect := func() (*plugin.SubstrateConnection, error) {
+		conn, err := plugin.NewSubstrateConnection(pluginOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("unable to connect to plugin: %w", err)
+		}
+		return conn, nil
+	}
+	var (
+		conn    *plugin.SubstrateConnection
+		release func() error
+	)
+	if config.SharedPlugin && canShare(config.LogWriter) {
+		key := sharedKey{writer: config.LogWriter, path: config.PluginPath, level: hcpLogLevel(config.LogLevel)}
+		sc, err := acquireShared(key, config.SharedIdleTimeout, connect)
+		if err != nil {
+			return nil, err
+		}
+		conn = sc.conn
+		release = func() error { return releaseShared(sc) }
+	} else {
+		var err error
+		conn, err = connect()
+		if err != nil {
+			return nil, err
+		}
+		release = conn.Close
+	}
+	tag, err := conn.GetSubstrate().NewMockFrom(mockint.PhylumName, mockint.PhylumVersion, snapshot, plugin.MockOptions{
 		PreheatTimeout: config.PreheatTimeout,
 	})
 	if err != nil {
+		_ = release()
 		return nil, fmt.Errorf("failed to create mock client: %w", err)
 	}
 	return &mockShiroClient{
 		baseConfig:  clientConfigs,
 		conn:        conn,
+		release:     release,
 		tag:         tag,
 		shiroPhylum: mockint.PhylumName,
 	}, nil

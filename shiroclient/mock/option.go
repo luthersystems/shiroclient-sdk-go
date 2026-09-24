@@ -77,3 +77,41 @@ func WithPreheatTimeout(d time.Duration) Option {
 		config.PreheatTimeout = d
 	}
 }
+
+// WithSharedPlugin hosts the mock in a substratehcp plugin process shared
+// with other mocks, instead of starting a process per mock.
+//
+// Mocks share a process when they use the same plugin path, log level and
+// log writer (a log writer whose type is not comparable disables sharing for
+// that mock). Each mock keeps its own ledger and server inside the process,
+// addressed by its own handle, so mocks do not see each other's state. Close
+// releases only that mock. The process stops once its last mock has closed
+// and the idle timeout (WithSharedPluginIdleTimeout) has passed, or when
+// shiroclient.ShutdownSharedMockPlugins is called.
+//
+// Trade-offs: a plugin crash fails every mock the process hosts, and the
+// plugin's output goes to one shared writer. Memory also behaves
+// differently: a short-lived process returns its garbage to the system when
+// it exits, but a shared process keeps a Go heap sized for the mocks it has
+// hosted, so under heavy churn its peak RSS can exceed that of per-process
+// mode even though it saves CPU and start-up time. Without this option each mock
+// gets its own process, as before.
+func WithSharedPlugin() Option {
+	return func(config *mockint.Config) {
+		config.SharedPlugin = true
+	}
+}
+
+// WithSharedPluginIdleTimeout sets how long a shared plugin process stays
+// alive after its last mock closes, so that a suite that creates and closes
+// mocks one after another reuses one process (the default is 10s). Zero
+// stops the process as soon as its last mock closes. It has no effect
+// without WithSharedPlugin; the most recent mock to join a process sets it.
+func WithSharedPluginIdleTimeout(d time.Duration) Option {
+	return func(config *mockint.Config) {
+		if d < 0 {
+			d = 0
+		}
+		config.SharedIdleTimeout = d
+	}
+}

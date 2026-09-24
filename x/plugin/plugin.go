@@ -684,6 +684,19 @@ func (s *SubstrateConnection) GetSubstrate() Substrate {
 	return s.substrate
 }
 
+// Pid returns the process ID of the plugin process, or 0 if it is unknown.
+func (s *SubstrateConnection) Pid() int {
+	if rc := s.client.ReattachConfig(); rc != nil {
+		return rc.Pid
+	}
+	return 0
+}
+
+// Exited reports whether the plugin process has exited.
+func (s *SubstrateConnection) Exited() bool {
+	return s.client.Exited()
+}
+
 // Close closes a connection.
 func (s *SubstrateConnection) Close() error {
 	s.client.Kill()
