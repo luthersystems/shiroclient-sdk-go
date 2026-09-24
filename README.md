@@ -107,9 +107,10 @@ default:
   from endorsing peers: Fabric sends all of it to every endorser, as for
   `Call`. Keys starting with `$batch/` are reserved and rejected (also in
   `Call`), as is an empty per-request key; nothing is sent. Per-request
-  transient data needs a substrate release with luthersystems/substrate#521.
-  Against an older chaincode the requests do not see their own keys, the
-  phylum usually fails, and the batch commits nothing.
+  transient data needs substrate with luthersystems/substrate#521. A gateway
+  without #521 has no `CallBatch` at all (`ErrCallBatchNotSupported`). A
+  #521 gateway talking to an older chaincode refuses the batch with an
+  error and orders nothing.
 - **Requirements.** The gateway must include
   [luthersystems/substrate#521](https://github.com/luthersystems/substrate/pull/521).
   An older gateway answers "method not found", and `CallBatch` returns an

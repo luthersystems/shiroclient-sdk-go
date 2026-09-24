@@ -125,9 +125,10 @@ var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 // data from endorsing peers, which receive all of it, as with Call.  Keys
 // starting with "$batch/" are reserved (the gateway uses them to pack
 // per-request keys) and are rejected, in Call too; so is an empty
-// per-request key.  Per-request transient data needs a substrate release
-// with luthersystems/substrate#521: with an older chaincode the requests do
-// not see their own keys, usually fail, and the batch commits nothing.
+// per-request key.  Per-request transient data needs substrate with
+// luthersystems/substrate#521.  A gateway without #521 has no CallBatch at
+// all (ErrCallBatchNotSupported); a #521 gateway talking to an older
+// chaincode refuses the batch with an error and orders nothing.
 //
 // A timeout (IsTimeoutError) means the batch MAY have committed: CallBatch
 // returns no CallBatchResponse and no CallBatchError, and the caller must

@@ -55,9 +55,10 @@ type CallBatchRequest struct {
 	// a batch from each other; it does NOT hide the data from endorsing
 	// peers, which receive every request's transient data, as with Call.
 	// Keys must be non-empty and must not start with "$batch/".  Nil or
-	// empty sends nothing.  Needs a substrate release with
-	// luthersystems/substrate#521; an older one does not show these keys to
-	// the request.
+	// empty sends nothing.  Needs substrate with
+	// luthersystems/substrate#521: a gateway without it has no CallBatch
+	// (ErrCallBatchNotSupported), and a #521 gateway talking to an older
+	// chaincode refuses the batch with an error and orders nothing.
 	Transient map[string][]byte
 	// Method is the phylum endpoint to call.
 	Method string
