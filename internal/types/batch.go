@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -29,6 +30,58 @@ func CheckTransientKeys(transient map[string][]byte) error {
 		}
 	}
 	return nil
+}
+
+// TransactionTransientKeys are the transient keys that belong to the whole
+// transaction rather than to one request: the CSPRNG seed, the timestamp
+// override and the trace context.  They are the only transient keys a
+// CallBatch shares between its requests, and a request cannot set them.
+var TransactionTransientKeys = []string{"csprng_seed_private", "timestamp_override", "traceparent", "tracestate"}
+
+// IsTransactionTransientKey reports whether key is one of
+// TransactionTransientKeys.
+func IsTransactionTransientKey(key string) bool {
+	for _, k := range TransactionTransientKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckBatchTransientKeys rejects shared CallBatch transient data other than
+// the TransactionTransientKeys: a request's data goes in its own Configs.
+func CheckBatchTransientKeys(transient map[string][]byte) error {
+	for _, k := range sortedKeys(transient) {
+		if !IsTransactionTransientKey(k) {
+			return fmt.Errorf("transient key %q cannot be shared by a batch: only %s are; set request data in that CallBatchRequest's Configs",
+				k, strings.Join(TransactionTransientKeys, ", "))
+		}
+	}
+	return nil
+}
+
+// checkRequestTransientKeys rejects keys a request cannot set: empty keys,
+// the reserved BatchTransientPrefix and the TransactionTransientKeys.
+func checkRequestTransientKeys(transient map[string][]byte) error {
+	for _, k := range sortedKeys(transient) {
+		switch {
+		case k == "":
+			return errors.New("empty transient key")
+		case IsTransactionTransientKey(k):
+			return fmt.Errorf("transient key %q is transaction-wide: set it in CallBatch's configs, not a request's", k)
+		}
+	}
+	return CheckTransientKeys(transient)
+}
+
+func sortedKeys(m map[string][]byte) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // CallBatcher is implemented by clients that can run several phylum methods
@@ -227,6 +280,9 @@ func RequestTransient(configs []Config) (map[string][]byte, error) {
 	}
 	if len(opt.Transient) == 0 {
 		return nil, nil
+	}
+	if err := checkRequestTransientKeys(opt.Transient); err != nil {
+		return nil, err
 	}
 	return opt.Transient, nil
 }

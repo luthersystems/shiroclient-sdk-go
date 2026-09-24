@@ -55,6 +55,9 @@ func (c *rpcShiroClient) CallBatch(ctx context.Context, requests []types.CallBat
 		return nil, err
 	}
 
+	if err := types.CheckBatchTransientKeys(opt.Transient); err != nil {
+		return nil, fmt.Errorf("ShiroClient.CallBatch: %w", err)
+	}
 	reqs, err := batchRequestsJSON(requests)
 	if err != nil {
 		return nil, err
@@ -159,11 +162,6 @@ func batchRequestsJSON(requests []types.CallBatchRequest) ([]interface{}, error)
 			return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: %w", i, err)
 		}
 		if len(transient) > 0 {
-			for k := range transient {
-				if k == "" {
-					return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: empty transient key", i)
-				}
-			}
 			transientJSON, err := encodeTransient(transient)
 			if err != nil {
 				return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: %w", i, err)

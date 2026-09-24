@@ -220,7 +220,7 @@ func TestCallBatchForwardsOptions(t *testing.T) {
 		},
 		shiroclient.WithoutTargetEndpoints([]string{"peer-restoring"}),
 		shiroclient.WithTargetEndpoints([]string{"peer0"}),
-		shiroclient.WithTransientData("tkey", []byte("secret")),
+		shiroclient.WithTransientData("csprng_seed_private", []byte("seed")),
 		shiroclient.WithMSPFilter([]string{"Org1MSP"}),
 		shiroclient.WithMinEndorsers(2),
 		shiroclient.WithCreator("Org2MSP"),
@@ -243,8 +243,8 @@ func TestCallBatchForwardsOptions(t *testing.T) {
 	assert.Equal(t, "v1.2.3", params["phylum_version"])
 	assert.Equal(t, true, params["disable_write_polling"])
 	assert.Equal(t, map[string]interface{}{
-		"tkey":               hex.EncodeToString([]byte("secret")),
-		"timestamp_override": hex.EncodeToString([]byte("2026-01-02T03:04:05Z")),
+		"csprng_seed_private": hex.EncodeToString([]byte("seed")),
+		"timestamp_override":  hex.EncodeToString([]byte("2026-01-02T03:04:05Z")),
 	}, params["transient"], "transient data is sent once and shared by every request")
 	assert.Equal(t, []interface{}{
 		map[string]interface{}{"method": "put", "params": map[string]interface{}{"k": "v"}},
@@ -464,10 +464,10 @@ func TestCallBatchSharedAndPerRequestTransient(t *testing.T) {
 	_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
 		{Method: "a", Configs: []shiroclient.Config{shiroclient.WithTransientData("secret", []byte("own"))}},
 		{Method: "b", Configs: []shiroclient.Config{shiroclient.WithTransientDataMap(map[string][]byte{})}},
-	}, shiroclient.WithTransientData("shared", []byte("both")))
+	}, shiroclient.WithTransientData("traceparent", []byte("both")))
 	require.NoError(t, err)
 	params := (<-got)["params"].(map[string]interface{})
-	assert.Equal(t, map[string]interface{}{"shared": hex.EncodeToString([]byte("both"))}, params["transient"])
+	assert.Equal(t, map[string]interface{}{"traceparent": hex.EncodeToString([]byte("both"))}, params["transient"])
 	reqs := params["requests"].([]interface{})
 	assert.Equal(t, map[string]interface{}{"secret": hex.EncodeToString([]byte("own"))},
 		reqs[0].(map[string]interface{})["transient"])

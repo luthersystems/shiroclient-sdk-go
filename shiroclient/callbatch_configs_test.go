@@ -112,3 +112,52 @@ func TestCallBatchRequestConfigsRefused(t *testing.T) {
 	}
 	assert.Equal(t, int32(0), atomic.LoadInt32(hits), "a refused config sends nothing")
 }
+
+func TestCallBatchSharedTransientOnlyTransactionWide(t *testing.T) {
+	client, got, hits := batchGateway(t, batchCommitted)
+	for _, key := range []string{"mxf", "secret", "csprng_seed_privat"} {
+		t.Run("refused "+key, func(t *testing.T) {
+			_, err := shiroclient.CallBatch(context.Background(), client,
+				[]shiroclient.CallBatchRequest{{Method: "a"}},
+				shiroclient.WithTransientData(key, []byte("x")))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), key)
+			assert.Contains(t, err.Error(), "CallBatchRequest's Configs", "the error points to per-request configs")
+		})
+	}
+	require.Equal(t, int32(0), atomic.LoadInt32(hits), "a refused shared key sends nothing")
+
+	shared := map[string][]byte{
+		"csprng_seed_private": []byte("seed"),
+		"timestamp_override":  []byte("2026-01-02T03:04:05Z"),
+		"traceparent":         []byte("tp"),
+		"tracestate":          []byte("ts"),
+	}
+	_, err := shiroclient.CallBatch(context.Background(), client,
+		[]shiroclient.CallBatchRequest{{Method: "a"}, {Method: "b"}},
+		shiroclient.WithTransientDataMap(shared))
+	require.NoError(t, err)
+	_, params := batchRequests(t, got)
+	want := map[string]interface{}{}
+	for k, v := range shared {
+		want[k] = hex.EncodeToString(v)
+	}
+	assert.Equal(t, want, params["transient"], "the transaction-wide keys are shared")
+}
+
+func TestCallBatchRequestRefusesTransactionWideKeys(t *testing.T) {
+	client, _, hits := batchGateway(t, batchCommitted)
+	for _, key := range []string{"csprng_seed_private", "timestamp_override", "traceparent", "tracestate"} {
+		t.Run(key, func(t *testing.T) {
+			_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
+				{Method: "a", Configs: []shiroclient.Config{shiroclient.WithTransientData(key, []byte("x"))}},
+				{Method: "b"},
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "request 0")
+			assert.Contains(t, err.Error(), key)
+			assert.Contains(t, err.Error(), "transaction-wide")
+		})
+	}
+	assert.Equal(t, int32(0), atomic.LoadInt32(hits), "nothing is sent")
+}
