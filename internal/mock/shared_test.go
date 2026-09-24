@@ -222,7 +222,8 @@ func TestPerProcessMode_Unchanged(t *testing.T) {
 // peak-rss-MB: the peak of the summed RSS of the test process and its
 // plugin processes, sampled every 5ms. The parallel8 variants run the
 // cycles from 8 goroutines at once, as a parallel test suite would; the held8 variants keep 8 mocks open
-// at once before closing them, as a test holding several fixtures would. Run
+// at once before closing them, as a test holding several fixtures would. held32 with -benchtime=32x
+// is a single burst of 32 open mocks. Run
 // with -benchtime=50x.
 func BenchmarkRestoreCycle(b *testing.B) {
 	requirePlugin(b)
@@ -249,6 +250,8 @@ func BenchmarkRestoreCycle(b *testing.B) {
 		{"shared-parallel8", shared, 8, 0},
 		{"per-process-held8", nil, 0, 8},
 		{"shared-held8", shared, 0, 8},
+		{"per-process-held32", nil, 0, 32},
+		{"shared-held32", shared, 0, 32},
 	} {
 		b.Run(mode.name, func(b *testing.B) {
 			runtime.GC()
