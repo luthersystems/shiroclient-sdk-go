@@ -58,16 +58,17 @@ Because the SDK launches the plugin as a child process that inherits the parent'
 ## ⚛️ Atomic Multi-Call (`CallBatch` and `QueryBatch`)
 
 `shiroclient.CallBatch` runs several phylum methods as **one** transaction,
-all or nothing. Requests run in order and each sees the writes of the ones
-before it. `shiroclient.QueryBatch` takes the same requests and runs them
-the same way, but never commits.
+all or nothing. `shiroclient.QueryBatch` takes the same requests and runs
+them the same way, but is never committed to the ledger. In both, requests
+always run in the order given, each seeing the writes of the requests
+before it.
 
 |                         | `CallBatch`                                      | `QueryBatch`                                       |
 |-------------------------|--------------------------------------------------|----------------------------------------------------|
 | Purpose                 | Write: commit several requests together          | Read or simulate several requests together         |
 | Every request must succeed | Yes: the first failure stops the batch        | Yes: the first failure stops the batch             |
-| Commits                 | The writes, once, as one transaction             | Never; nothing is ordered                          |
-| Later requests see earlier writes | Yes                                    | Yes, the simulated writes, then discarded          |
+| Commits                 | The writes, once, as one transaction             | Never committed to the ledger                      |
+| Request order           | As given; each sees earlier requests' writes     | As given; each sees earlier requests' writes (then discarded) |
 | Write-then-discard requests (`private_decode`) | Refused: they fail the batch with `CodeForcedNoCommit` | Allowed: they belong here  |
 | Result on failure       | `CallBatchResponse` + `*CallBatchError`          | `CallBatchResponse` + `*CallBatchError`            |
 | `Committed` / `TxID`    | Set when the batch wrote state                   | Always `false` / empty                             |

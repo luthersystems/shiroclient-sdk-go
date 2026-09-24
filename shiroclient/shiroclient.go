@@ -172,10 +172,10 @@ type QueryBatcher = types.QueryBatcher
 var ErrQueryBatchNotSupported = types.ErrQueryBatchNotSupported
 
 // QueryBatch simulates several phylum methods as ONE transaction, all or
-// nothing, and never commits or orders it.
+// nothing, that is never committed to the ledger.
 //
-// It is CallBatch without the commit.  Requests run in order in one
-// simulation and each sees the simulated writes of the ones before it; the
+// It is CallBatch without the commit.  Requests always run in the order
+// given, in one simulation, and each sees the simulated writes of the ones before it; the
 // writes are then discarded.  Every request must succeed: the first failure
 // stops the batch, because the later results would rest on a simulation
 // that went wrong.  QueryBatch then returns the CallBatchResponse together
