@@ -374,3 +374,61 @@ func sampleRSS() func() int64 {
 	}()
 	return func() int64 { close(done); return <-result }
 }
+
+// TestSharedPlugin_Stress runs many shared mocks on one process at once,
+// mixing init, writes, reads and snapshot/restore, and races Close of the
+// last mock against a new mock's startup.  Run it with -race, and with a
+// race-enabled plugin (GORACE=log_path=...) to check the plugin side too.
+func TestSharedPlugin_Stress(t *testing.T) {
+	requirePlugin(t)
+	if testing.Short() {
+		t.Skip("stress test")
+	}
+	t.Cleanup(func() { _ = ShutdownSharedPlugins() })
+
+	const n = 32
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c := newTestMock(t, mock.WithSharedPlugin())
+			defer func() { require.NoError(t, c.Close()) }()
+			initMock(t, c)
+			for j := 0; j < 4; j++ {
+				v := fmt.Sprintf("value-%d-%d", i, j)
+				callMock(t, c, "write", []interface{}{v})
+				require.Equal(t, v, callMock(t, c, "read", nil))
+				if j%2 == 1 {
+					var snap bytes.Buffer
+					require.NoError(t, c.Snapshot(&snap))
+					r := newTestMock(t, mock.WithSharedPlugin(), mock.WithSnapshotReader(&snap))
+					require.Equal(t, v, callMock(t, r, "read", nil))
+					callMock(t, r, "write", []interface{}{"restored"})
+					require.Equal(t, v, callMock(t, c, "read", nil))
+					require.NoError(t, r.Close())
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// Close of the last mock (idle timeout 0 stops the process) racing a
+	// new mock's startup on the same pool key.
+	for k := 0; k < 8; k++ {
+		old := newTestMock(t, mock.WithSharedPlugin(), mock.WithSharedPluginIdleTimeout(0))
+		var cwg sync.WaitGroup
+		cwg.Add(2)
+		go func() { defer cwg.Done(); require.NoError(t, old.Close()) }()
+		var fresh *mockShiroClient
+		go func() {
+			defer cwg.Done()
+			fresh = newTestMock(t, mock.WithSharedPlugin(), mock.WithSharedPluginIdleTimeout(0))
+		}()
+		cwg.Wait()
+		initMock(t, fresh)
+		callMock(t, fresh, "write", []interface{}{"fresh"})
+		require.Equal(t, "fresh", callMock(t, fresh, "read", nil))
+		require.NoError(t, fresh.Close())
+	}
+}

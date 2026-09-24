@@ -34,7 +34,8 @@ plugin-darwin: ${SUBSTRATE_PLUGIN_DARWIN}
 citest: plugin test
 	@
 
-GO_TEST_BASE=${GO_HOST_EXTRA_ENV} go test ${GO_TEST_FLAGS}
+# -race: shared mocks run many ledgers concurrently over one connection.
+GO_TEST_BASE=${GO_HOST_EXTRA_ENV} go test -race ${GO_TEST_FLAGS}
 GO_TEST_TIMEOUT_10=${GO_TEST_BASE} -timeout 10m
 
 .PHONY: go-test
