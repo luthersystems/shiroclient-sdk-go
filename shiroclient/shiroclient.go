@@ -112,7 +112,9 @@ var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 // If any request fails, NOTHING is committed.  CallBatch then returns the
 // CallBatchResponse together with a *CallBatchError naming the failed request.  The
 // failed request's response carries its own error; every other request's
-// response carries a "batch aborted" error (see CallBatchAborted).
+// response carries a "batch aborted" error (see CallBatchAborted).  A request
+// whose method forces its transaction not to commit, such as private_decode,
+// fails the batch with CodeForcedNoCommit: run it with QueryBatch instead.
 //
 // The configs are those of Call, applied once to the whole batch.  Transient
 // data (WithTransientData) is shared by every request, and every request runs
@@ -153,6 +155,13 @@ func CallBatch(ctx context.Context, client ShiroClient, requests []CallBatchRequ
 // of a batch that was not committed because another request failed. A phylum
 // error never carries it.
 const CodeBatchAborted = types.CodeBatchAborted
+
+// CodeForcedNoCommit is the JSON-RPC error code substrate gives, in a
+// CallBatch, to a request whose method forces its transaction not to commit
+// (private_decode, for example).  It fails the batch like any other request
+// error: it is the CallBatchError's Err, and every other request gets
+// CodeBatchAborted.  Run such requests with QueryBatch.
+const CodeForcedNoCommit = types.CodeForcedNoCommit
 
 // CallBatchAborted reports whether err is the error given to a request of a
 // batch that did not fail itself but was not committed because another

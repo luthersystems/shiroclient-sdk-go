@@ -522,3 +522,31 @@ func TestCallBatchRejectsReservedTransientKeys(t *testing.T) {
 	}
 	assert.Equal(t, int32(0), atomic.LoadInt32(hits), "nothing is sent")
 }
+
+const batchForcedNoCommit = `{"jsonrpc":"2.0","id":"batch-1",
+ "result":{"error_level":2,"committed":false,"code":-32000,
+   "message":"batch not committed: request 1 failed: forced no-commit","data":{"failed_index":1},
+   "result":[{"id":"w","error_level":2,"result":null,"code":-32001,"message":"Batch aborted","data":{"batch_aborted":true,"failed_id":"d"}},
+             {"id":"d","error_level":2,"result":null,"code":-32002,"message":"private_decode cannot run in a committing batch","data":{"failed_id":"d"}}]}}`
+
+func TestCallBatchForcedNoCommitFailsBatch(t *testing.T) {
+	client, _, _ := batchGateway(t, batchForcedNoCommit)
+	resp, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
+		{Method: "put", ID: "w"},
+		{Method: "private_decode", ID: "d"},
+	})
+	var batchErr *shiroclient.CallBatchError
+	require.True(t, errors.As(err, &batchErr), "got %T: %v", err, err)
+	assert.Equal(t, 1, batchErr.Index)
+	assert.Equal(t, "d", batchErr.ID)
+	assert.Equal(t, shiroclient.CodeForcedNoCommit, batchErr.Err.Code())
+	_, aborted := shiroclient.CallBatchAborted(batchErr.Err)
+	assert.False(t, aborted, "the forced no-commit request failed itself")
+
+	require.NotNil(t, resp)
+	assert.False(t, resp.Committed)
+	assert.Equal(t, 1, resp.FailedIndex())
+	failedID, aborted := shiroclient.CallBatchAborted(resp.Responses[0].Error())
+	assert.True(t, aborted)
+	assert.Equal(t, "d", failedID)
+}

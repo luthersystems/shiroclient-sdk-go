@@ -212,6 +212,15 @@ func (e *CallBatchError) Unwrap() error {
 // failed. The router never lets a phylum error carry it.
 const CodeBatchAborted = -32001
 
+// CodeForcedNoCommit is the JSON-RPC error code substrate gives, in a
+// CallBatch, to a request whose method forces its transaction not to commit
+// (private_decode, for example: it writes only to decode, and those writes
+// must be discarded).  Such a request cannot share a transaction that is
+// meant to commit, so it fails the batch: it is the CallBatchError's
+// request, and every other request gets CodeBatchAborted.  Run such
+// requests with QueryBatch, which never commits.
+const CodeForcedNoCommit = -32002
+
 // CallBatchAborted reports whether err is the error given to a request of a batch
 // that did not fail itself but was not committed because another request
 // failed.  failedID is the id of the request that failed. Only the reserved
