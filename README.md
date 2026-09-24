@@ -63,9 +63,11 @@ before it.
 
 ```go
 resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.CallBatchRequest{
-  {Method: "create_account", Params: []interface{}{acct}, ID: "create"},
-  {Method: "deposit", Params: []interface{}{deposit}},
-}, shiroclient.WithTransientData("key", secret))
+  {Method: "deposit", Params: []interface{}{aliceDeposit}, ID: "alice",
+    Transient: map[string][]byte{"secret": aliceSecret}},
+  {Method: "deposit", Params: []interface{}{bobDeposit}, ID: "bob",
+    Transient: map[string][]byte{"secret": bobSecret}},
+}, shiroclient.WithTransientData("key", sharedKey)) // shared by both
 var batchErr *shiroclient.CallBatchError
 switch {
 case errors.As(err, &batchErr):
@@ -96,8 +98,18 @@ default:
   also reports `ErrOutcomeUnknown` with the transaction ID
   (`OutcomeUnknownTxID`). An older gateway sends only the timeout.
 - **Shared options.** Configs apply to the whole batch, as for `Call`:
-  transient data is shared by every request, and every request runs
-  against the same phylum version.
+  transient data from `WithTransientData` is shared by every request, and
+  every request runs against the same phylum version.
+- **Per-request transient data.** `CallBatchRequest.Transient` is seen only
+  by its own request: a transient read there finds the request's key first,
+  then the shared one, so two deposits can each carry their own `"secret"`.
+  This isolates the requests from each other. It does **not** hide the data
+  from endorsing peers: Fabric sends all of it to every endorser, as for
+  `Call`. Keys starting with `$batch/` are reserved and rejected (also in
+  `Call`), as is an empty per-request key; nothing is sent. Per-request
+  transient data needs a substrate release with luthersystems/substrate#521.
+  Against an older chaincode the requests do not see their own keys, the
+  phylum usually fails, and the batch commits nothing.
 - **Requirements.** The gateway must include
   [luthersystems/substrate#521](https://github.com/luthersystems/substrate/pull/521).
   An older gateway answers "method not found", and `CallBatch` returns an

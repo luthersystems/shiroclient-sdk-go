@@ -59,7 +59,10 @@ func (c *rpcShiroClient) CallBatch(ctx context.Context, requests []types.CallBat
 	if err != nil {
 		return nil, err
 	}
-	params := callOptionParams(ctx, opt)
+	params, err := callOptionParams(ctx, opt)
+	if err != nil {
+		return nil, fmt.Errorf("ShiroClient.CallBatch: shared %w", err)
+	}
 	params["requests"] = reqs
 
 	req := map[string]interface{}{
@@ -150,6 +153,18 @@ func batchRequestsJSON(requests []types.CallBatchRequest) ([]interface{}, error)
 		elem := map[string]interface{}{
 			"method": r.Method,
 			"params": params,
+		}
+		if len(r.Transient) > 0 {
+			for k := range r.Transient {
+				if k == "" {
+					return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: empty transient key", i)
+				}
+			}
+			transient, err := encodeTransient(r.Transient)
+			if err != nil {
+				return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: %w", i, err)
+			}
+			elem["transient"] = transient
 		}
 		if r.ID != nil {
 			if !validBatchID(r.ID) {

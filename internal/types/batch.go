@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrCallBatchNotSupported is returned by CallBatch when the client or the
@@ -12,6 +13,22 @@ import (
 // answers "method not found", and the mock plugin does not support batches
 // yet.  Nothing was run.
 var ErrCallBatchNotSupported = errors.New("shiroclient: CallBatch not supported")
+
+// BatchTransientPrefix is reserved: the gateway packs a CallBatch request's
+// own transient keys as "$batch/<index>/<key>", and rejects a caller's key
+// with this prefix in Call and CallBatch alike.
+const BatchTransientPrefix = "$batch/"
+
+// CheckTransientKeys rejects transient keys with the reserved
+// BatchTransientPrefix.
+func CheckTransientKeys(transient map[string][]byte) error {
+	for k := range transient {
+		if strings.HasPrefix(k, BatchTransientPrefix) {
+			return fmt.Errorf("transient key %q: the %q prefix is reserved", k, BatchTransientPrefix)
+		}
+	}
+	return nil
+}
 
 // CallBatcher is implemented by clients that can run several phylum methods
 // as one all-or-nothing transaction.  It is separate from ShiroClient so that
@@ -32,6 +49,16 @@ type CallBatchRequest struct {
 	// before the batch is sent.  When nil, the server uses the request's
 	// index in the batch.
 	ID interface{}
+	// Transient is transient data for this request only.  Inside the
+	// request, a transient read finds a key here first, then in the batch's
+	// shared transient data (WithTransientData).  It isolates the requests of
+	// a batch from each other; it does NOT hide the data from endorsing
+	// peers, which receive every request's transient data, as with Call.
+	// Keys must be non-empty and must not start with "$batch/".  Nil or
+	// empty sends nothing.  Needs a substrate release with
+	// luthersystems/substrate#521; an older one does not show these keys to
+	// the request.
+	Transient map[string][]byte
 	// Method is the phylum endpoint to call.
 	Method string
 }

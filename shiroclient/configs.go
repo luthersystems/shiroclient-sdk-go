@@ -74,6 +74,7 @@ func WithParams(params interface{}) Config {
 
 // WithTransientData allows specifying a single "transient data"
 // key-value pair.
+// Keys starting with "$batch/" are reserved for CallBatch and are rejected.
 func WithTransientData(key string, val []byte) Config {
 	return types.Opt(func(r *types.RequestOptions) {
 		r.Transient[key] = val
@@ -82,6 +83,7 @@ func WithTransientData(key string, val []byte) Config {
 
 // WithTransientDataMap allows specifying multiple "transient data"
 // key-value pairs.
+// Keys starting with "$batch/" are reserved for CallBatch and are rejected.
 func WithTransientDataMap(data map[string][]byte) Config {
 	return types.Opt(func(r *types.RequestOptions) {
 		for key, val := range data {

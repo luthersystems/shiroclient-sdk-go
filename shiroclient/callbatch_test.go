@@ -442,3 +442,83 @@ func TestCallBatchAbortedRequiresReservedCode(t *testing.T) {
 	assert.Equal(t, "f", failedID)
 	assert.Equal(t, 0, resp.FailedIndex())
 }
+
+func TestCallBatchPerRequestTransient(t *testing.T) {
+	client, got, _ := batchGateway(t, batchCommitted)
+	_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
+		{Method: "deposit", Transient: map[string][]byte{"secret": []byte("alice")}},
+		{Method: "deposit", Transient: map[string][]byte{"secret": []byte("bob")}},
+	})
+	require.NoError(t, err)
+	params := (<-got)["params"].(map[string]interface{})
+	reqs := params["requests"].([]interface{})
+	for i, want := range []string{"alice", "bob"} {
+		assert.Equal(t, map[string]interface{}{"secret": hex.EncodeToString([]byte(want))},
+			reqs[i].(map[string]interface{})["transient"], "request %d has its own value for the same key", i)
+	}
+	assert.Equal(t, map[string]interface{}{}, params["transient"], "nothing is shared")
+}
+
+func TestCallBatchSharedAndPerRequestTransient(t *testing.T) {
+	client, got, _ := batchGateway(t, batchCommitted)
+	_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
+		{Method: "a", Transient: map[string][]byte{"secret": []byte("own")}},
+		{Method: "b", Transient: map[string][]byte{}},
+	}, shiroclient.WithTransientData("shared", []byte("both")))
+	require.NoError(t, err)
+	params := (<-got)["params"].(map[string]interface{})
+	assert.Equal(t, map[string]interface{}{"shared": hex.EncodeToString([]byte("both"))}, params["transient"])
+	reqs := params["requests"].([]interface{})
+	assert.Equal(t, map[string]interface{}{"secret": hex.EncodeToString([]byte("own"))},
+		reqs[0].(map[string]interface{})["transient"])
+	assert.NotContains(t, reqs[1].(map[string]interface{}), "transient", "an empty map sends no transient field")
+}
+
+func TestCallBatchTransientOmittedWhenNil(t *testing.T) {
+	client, got, _ := batchGateway(t, batchCommitted)
+	_, err := shiroclient.CallBatch(context.Background(), client,
+		[]shiroclient.CallBatchRequest{{Method: "a"}, {Method: "b"}})
+	require.NoError(t, err)
+	for i, r := range (<-got)["params"].(map[string]interface{})["requests"].([]interface{}) {
+		assert.NotContains(t, r.(map[string]interface{}), "transient", "request %d", i)
+	}
+}
+
+func TestCallBatchRejectsReservedTransientKeys(t *testing.T) {
+	client, _, hits := batchGateway(t, batchCommitted)
+	cases := map[string]func() error{
+		"per-request $batch/ key": func() error {
+			_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
+				{Method: "a"},
+				{Method: "b", Transient: map[string][]byte{"$batch/0/secret": []byte("x")}},
+			})
+			return err
+		},
+		"shared $batch/ key": func() error {
+			_, err := shiroclient.CallBatch(context.Background(), client,
+				[]shiroclient.CallBatchRequest{{Method: "a"}, {Method: "b"}},
+				shiroclient.WithTransientData("$batch/1/secret", []byte("x")))
+			return err
+		},
+		"Call $batch/ key": func() error {
+			_, err := client.Call(context.Background(), "a",
+				shiroclient.WithTransientDataMap(map[string][]byte{"$batch/0/k": []byte("x")}))
+			return err
+		},
+		"empty per-request key": func() error {
+			_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
+				{Method: "a", Transient: map[string][]byte{"": []byte("x")}},
+				{Method: "b"},
+			})
+			return err
+		},
+	}
+	for name, run := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := run()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "transient")
+		})
+	}
+	assert.Equal(t, int32(0), atomic.LoadInt32(hits), "nothing is sent")
+}

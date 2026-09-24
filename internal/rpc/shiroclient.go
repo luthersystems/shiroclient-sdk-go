@@ -551,13 +551,25 @@ func (c *rpcShiroClient) Init(ctx context.Context, phylum string, configs ...typ
 	}
 }
 
+// encodeTransient hex-encodes transient data for the gateway, rejecting the
+// reserved "$batch/" key prefix.
+func encodeTransient(transient map[string][]byte) (map[string]interface{}, error) {
+	if err := types.CheckTransientKeys(transient); err != nil {
+		return nil, err
+	}
+	transientJSON := make(map[string]interface{}, len(transient))
+	for k, v := range transient {
+		transientJSON[k] = hex.EncodeToString(v)
+	}
+	return transientJSON, nil
+}
+
 // callOptionParams builds the gateway parameters that Call and CallBatch
 // share: the hex-encoded transient data and the per-call options.
-func callOptionParams(ctx context.Context, opt *types.RequestOptions) map[string]interface{} {
-	transientJSON := make(map[string]interface{})
-
-	for k, v := range opt.Transient {
-		transientJSON[k] = hex.EncodeToString(v)
+func callOptionParams(ctx context.Context, opt *types.RequestOptions) (map[string]interface{}, error) {
+	transientJSON, err := encodeTransient(opt.Transient)
+	if err != nil {
+		return nil, err
 	}
 
 	if opt.TimestampGenerator != nil {
@@ -603,7 +615,7 @@ func callOptionParams(ctx context.Context, opt *types.RequestOptions) map[string
 	if len(opt.NotTargetEndpoints) > 0 {
 		params["not_target_endpoints"] = opt.NotTargetEndpoints
 	}
-	return params
+	return params, nil
 }
 
 // Call implements the ShiroClient interface.
@@ -615,7 +627,10 @@ func (c *rpcShiroClient) Call(ctx context.Context, method string, configs ...typ
 		return nil, err
 	}
 
-	params := callOptionParams(ctx, opt)
+	params, err := callOptionParams(ctx, opt)
+	if err != nil {
+		return nil, fmt.Errorf("ShiroClient.Call: %w", err)
+	}
 	params["method"] = method
 	params["params"] = opt.Params
 

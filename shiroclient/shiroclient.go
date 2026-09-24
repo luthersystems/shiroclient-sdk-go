@@ -119,6 +119,16 @@ var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 // against the same phylum version (WithPhylumVersion).  WithParams is
 // ignored: each request carries its own Params.
 //
+// A request's own CallBatchRequest.Transient is seen only by that request:
+// a transient read inside it finds the request's key first, then the shared
+// one.  This isolates the requests from each other; it does NOT hide the
+// data from endorsing peers, which receive all of it, as with Call.  Keys
+// starting with "$batch/" are reserved (the gateway uses them to pack
+// per-request keys) and are rejected, in Call too; so is an empty
+// per-request key.  Per-request transient data needs a substrate release
+// with luthersystems/substrate#521: with an older chaincode the requests do
+// not see their own keys, usually fail, and the batch commits nothing.
+//
 // A timeout (IsTimeoutError) means the batch MAY have committed: CallBatch
 // returns no CallBatchResponse and no CallBatchError, and the caller must
 // reconcile against the ledger before running the requests again.  With a

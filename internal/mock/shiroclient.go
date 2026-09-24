@@ -142,6 +142,9 @@ func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...ty
 	if err != nil {
 		return nil, err
 	}
+	if err := types.CheckTransientKeys(cro.Transient); err != nil {
+		return nil, fmt.Errorf("ShiroClient.Call: %w", err)
+	}
 
 	resp, err := c.conn.GetSubstrate().Call(c.tag, method, cro)
 	if err != nil {
