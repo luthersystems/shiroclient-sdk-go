@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -60,6 +61,14 @@ type CallBatchRequest struct {
 	// (ErrCallBatchNotSupported), and a #521 gateway talking to an older
 	// chaincode refuses the batch with an error and orders nothing.
 	Transient map[string][]byte
+	// Configs are Call configs for this request only, applied in order as
+	// for Call.  Only transient data may be set here: WithTransientData,
+	// WithTransientDataMap and helpers built on them.  That data is sent
+	// with this request alone.  Every other option applies to the whole
+	// transaction or to the HTTP call, so it is refused before the batch is
+	// sent; pass it in CallBatch's own configs instead.  Params and the
+	// JSON-RPC id are the Params and ID fields.
+	Configs []Config
 	// Method is the phylum endpoint to call.
 	Method string
 }
@@ -156,4 +165,79 @@ func CallBatchAborted(err Error) (failedID interface{}, ok bool) {
 		return nil, false
 	}
 	return data.FailedID, true
+}
+
+// requestOptionNames names the Call configs that set each RequestOptions
+// field, for the error that refuses them in CallBatchRequest.Configs.  A
+// field missing here is refused too, under its field name.
+var requestOptionNames = map[string]string{
+	"Params":              "WithParams (use CallBatchRequest.Params)",
+	"ID":                  "WithID (use CallBatchRequest.ID)",
+	"Target":              "WithResponse",
+	"Log":                 "WithLog",
+	"LogFields":           "WithLogField/WithLogrusFields",
+	"Headers":             "WithHeader",
+	"CcFetchURLProxy":     "WithCCFetchURLProxy",
+	"HTTPClient":          "WithHTTPClient",
+	"TimestampGenerator":  "WithTimestampGenerator",
+	"Endpoint":            "WithEndpoint",
+	"NewPhylumVersion":    "the new phylum version",
+	"PhylumVersion":       "WithPhylumVersion",
+	"DependentBlock":      "WithDependentBlock",
+	"AuthToken":           "WithAuthToken",
+	"Creator":             "WithCreator",
+	"DependentTxID":       "WithDependentTxID",
+	"NotTargetEndpoints":  "WithoutTargetEndpoints",
+	"TargetEndpoints":     "WithTargetEndpoints",
+	"MspFilter":           "WithMSPFilter",
+	"MinEndorsers":        "WithMinEndorsers",
+	"DisableWritePolling": "WithDisableWritePolling",
+	"CcFetchURLDowngrade": "WithCCFetchURLDowngrade",
+	"ResponseReceiver":    "WithResponseReceiver",
+	"DebugPrint":          "WithUnsafeDebug",
+}
+
+// RequestTransient applies a CallBatchRequest's Configs and returns the
+// transient data they set, or nil when they set none.  Every other option
+// is refused: it applies to the whole transaction or the HTTP call, not to
+// one request.  A new RequestOptions field is refused until it is known to
+// be per-request.
+func RequestTransient(configs []Config) (map[string][]byte, error) {
+	if len(configs) == 0 {
+		return nil, nil
+	}
+	newOpts := func() *RequestOptions {
+		return &RequestOptions{
+			LogFields: map[string]interface{}{},
+			Headers:   map[string]string{},
+			Transient: map[string][]byte{},
+		}
+	}
+	opt, blank := newOpts(), newOpts()
+	for i, c := range configs {
+		if c == nil {
+			return nil, fmt.Errorf("config %d is nil", i)
+		}
+		c.Fn(opt)
+	}
+	got, want := reflect.ValueOf(opt).Elem(), reflect.ValueOf(blank).Elem()
+	for i := 0; i < got.NumField(); i++ {
+		name := got.Type().Field(i).Name
+		if name == "Transient" {
+			continue
+		}
+		// DeepEqual treats two nil funcs as equal and any non-nil func as
+		// set, which is what refusing a func option needs.
+		if !reflect.DeepEqual(got.Field(i).Interface(), want.Field(i).Interface()) {
+			label, ok := requestOptionNames[name]
+			if !ok {
+				label = name
+			}
+			return nil, fmt.Errorf("%s cannot be set per request: it applies to the whole transaction or HTTP call; pass it in CallBatch's configs", label)
+		}
+	}
+	if len(opt.Transient) == 0 {
+		return nil, nil
+	}
+	return opt.Transient, nil
 }
