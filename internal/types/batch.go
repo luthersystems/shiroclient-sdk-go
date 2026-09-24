@@ -106,8 +106,9 @@ func (c *csprngSeedConfig) Fn(r *RequestOptions) {
 
 // CSPRNGSeedConfig returns a Config that sets the CSPRNG seed transient
 // key.  A transaction has one seed, so in a CallBatchRequest's Configs this
-// config sets nothing: the request uses the seed the batch's own configs
-// set, and RequestTransient reports it so the batch can insist on one.
+// config does not set the request's transient data: RequestTransient
+// returns the seed instead, and the batch uses it as the transaction's seed
+// when the batch's own configs set none and no earlier request carried one.
 func CSPRNGSeedConfig(seed []byte) Config {
 	return &csprngSeedConfig{seed: seed}
 }
@@ -147,8 +148,9 @@ type CallBatchRequest struct {
 	// Keys must be non-empty, must not start with "$batch/", and must not
 	// be a transaction-wide key (TransactionTransientKeys), which belongs in
 	// the batch's own configs.  The CSPRNG seed that private.WithSeed and
-	// private.WithTransientMXF carry is the exception: here it sets nothing,
-	// and the batch's own configs must set the transaction's one seed.
+	// private.WithTransientMXF carry is the exception: it is promoted to the
+	// transaction's one seed when the batch's own configs set none and no
+	// earlier request carried one, and is ignored otherwise.
 	//
 	// Every other option applies to the whole transaction or to the HTTP
 	// call and is refused before the batch is sent, naming the option:
@@ -305,11 +307,12 @@ var requestOptionNames = map[string]string{
 // is refused: it applies to the whole transaction or the HTTP call, not to
 // one request.  A new RequestOptions field is refused until it is known to
 // be per-request.  A CSPRNGSeedConfig (private.WithSeed, and so
-// private.WithTransientMXF) is skipped and reported as seeded: the batch's
-// own configs must set the transaction's seed.
-func RequestTransient(configs []Config) (transient map[string][]byte, seeded bool, err error) {
+// private.WithTransientMXF) does not set the request's transient data: its
+// seed is returned, the first one when there are several, for the batch to
+// promote to the transaction's seed.
+func RequestTransient(configs []Config) (transient map[string][]byte, seed []byte, err error) {
 	if len(configs) == 0 {
-		return nil, false, nil
+		return nil, nil, nil
 	}
 	newOpts := func() *RequestOptions {
 		return &RequestOptions{
@@ -321,10 +324,12 @@ func RequestTransient(configs []Config) (transient map[string][]byte, seeded boo
 	opt, blank := newOpts(), newOpts()
 	for i, c := range configs {
 		if c == nil {
-			return nil, false, fmt.Errorf("config %d is nil", i)
+			return nil, nil, fmt.Errorf("config %d is nil", i)
 		}
-		if _, ok := c.(*csprngSeedConfig); ok {
-			seeded = true
+		if sc, ok := c.(*csprngSeedConfig); ok {
+			if seed == nil {
+				seed = sc.seed
+			}
 			continue
 		}
 		c.Fn(opt)
@@ -342,14 +347,14 @@ func RequestTransient(configs []Config) (transient map[string][]byte, seeded boo
 			if !ok {
 				label = name
 			}
-			return nil, false, fmt.Errorf("%s cannot be set per request: it applies to the whole transaction or HTTP call; pass it in CallBatch's configs", label)
+			return nil, nil, fmt.Errorf("%s cannot be set per request: it applies to the whole transaction or HTTP call; pass it in CallBatch's configs", label)
 		}
 	}
 	if len(opt.Transient) == 0 {
-		return nil, seeded, nil
+		return nil, seed, nil
 	}
 	if err := checkRequestTransientKeys(opt.Transient); err != nil {
-		return nil, false, err
+		return nil, nil, err
 	}
-	return opt.Transient, seeded, nil
+	return opt.Transient, seed, nil
 }

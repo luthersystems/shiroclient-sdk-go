@@ -61,10 +61,14 @@ func (c *rpcShiroClient) sendBatch(ctx context.Context, method string, unsupport
 	if err := types.CheckBatchTransientKeys(opt.Transient); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", name, err)
 	}
-	_, batchSeeded := opt.Transient[types.CSPRNGSeedKey]
-	reqs, err := batchRequestsJSON(name, requests, batchSeeded)
+	reqs, seed, err := batchRequestsJSON(name, requests)
 	if err != nil {
 		return nil, nil, err
+	}
+	if _, ok := opt.Transient[types.CSPRNGSeedKey]; !ok && seed != nil {
+		// The batch set no seed: promote the first request's.  Every
+		// private.WithSeed is fresh and random, so any one would do.
+		opt.Transient[types.CSPRNGSeedKey] = seed
 	}
 	params, err := callOptionParams(ctx, opt)
 	if err != nil {
@@ -174,49 +178,49 @@ func batchError(br *types.CallBatchResponse, failed int) error {
 // batchRequestsJSON renders requests as the gateway's "requests" parameter,
 // rejecting what the gateway would reject for the whole batch.
 //
-// batchSeeded reports whether the batch's own configs set the CSPRNG seed,
-// which a request whose configs carry one (private.WithSeed,
-// private.WithTransientMXF) requires: a transaction has one seed.
-func batchRequestsJSON(name string, requests []types.CallBatchRequest, batchSeeded bool) ([]interface{}, error) {
+// seed is the CSPRNG seed of the first request whose configs carry one
+// (private.WithSeed, private.WithTransientMXF), or nil: a transaction has
+// one seed, so it is never sent per request.
+func batchRequestsJSON(name string, requests []types.CallBatchRequest) (out []interface{}, seed []byte, err error) {
 	if len(requests) == 0 {
-		return nil, fmt.Errorf("%s: no requests", name)
+		return nil, nil, fmt.Errorf("%s: no requests", name)
 	}
-	out := make([]interface{}, len(requests))
+	out = make([]interface{}, len(requests))
 	for i, r := range requests {
 		if r.Method == "" {
-			return nil, fmt.Errorf("%s: request %d has no method", name, i)
+			return nil, nil, fmt.Errorf("%s: request %d has no method", name, i)
 		}
 		params, err := batchParamsJSON(r.Params)
 		if err != nil {
-			return nil, fmt.Errorf("%s: request %d: %w", name, i, err)
+			return nil, nil, fmt.Errorf("%s: request %d: %w", name, i, err)
 		}
 		elem := map[string]interface{}{
 			"method": r.Method,
 			"params": params,
 		}
-		transient, seeded, err := types.RequestTransient(r.Configs)
+		transient, reqSeed, err := types.RequestTransient(r.Configs)
 		if err != nil {
-			return nil, fmt.Errorf("%s: request %d: %w", name, i, err)
+			return nil, nil, fmt.Errorf("%s: request %d: %w", name, i, err)
 		}
-		if seeded && !batchSeeded {
-			return nil, fmt.Errorf("%s: request %d: its configs carry a CSPRNG seed (private.WithSeed or private.WithTransientMXF), but a transaction has one seed: pass private.WithSeed() in CallBatch's configs", name, i)
+		if seed == nil {
+			seed = reqSeed
 		}
 		if len(transient) > 0 {
 			transientJSON, err := encodeTransient(transient)
 			if err != nil {
-				return nil, fmt.Errorf("%s: request %d: %w", name, i, err)
+				return nil, nil, fmt.Errorf("%s: request %d: %w", name, i, err)
 			}
 			elem["transient"] = transientJSON
 		}
 		if r.ID != nil {
 			if !validBatchID(r.ID) {
-				return nil, fmt.Errorf("%s: request %d: id must be a string, or a number within ±2^53 (the gateway decodes ids as float64); got %T %v", name, i, r.ID, r.ID)
+				return nil, nil, fmt.Errorf("%s: request %d: id must be a string, or a number within ±2^53 (the gateway decodes ids as float64); got %T %v", name, i, r.ID, r.ID)
 			}
 			elem["id"] = r.ID
 		}
 		out[i] = elem
 	}
-	return out, nil
+	return out, seed, nil
 }
 
 // batchParamsJSON encodes a request's params.  The gateway accepts only an

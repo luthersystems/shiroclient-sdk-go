@@ -82,15 +82,12 @@ aliceMXF, err := private.WithTransientMXF(&private.EncodeRequest{Message: alice,
 if err != nil { return err }
 bobMXF, err := private.WithTransientMXF(&private.EncodeRequest{Message: bob, Transforms: transforms})
 if err != nil { return err }
-seed, err := private.WithSeed() // one CSPRNG seed per transaction
-if err != nil { return err }
-
 resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.CallBatchRequest{
   {Method: "create_profile", ID: "alice", Configs: aliceMXF},
   {Method: "create_profile", ID: "bob", Configs: bobMXF},
   {Method: "deposit", Params: []interface{}{aliceDeposit}, ID: "deposit",
     Configs: []shiroclient.Config{shiroclient.WithTransientData("secret", aliceSecret)}},
-}, seed) // batch level: the seed, and options such as WithMSPFilter
+}) // batch-level configs go here, e.g. WithMSPFilter; optionally private.WithSeed()
 var batchErr *shiroclient.CallBatchError
 switch {
 case errors.As(err, &batchErr):
@@ -136,14 +133,20 @@ default:
   `timestamp_override`, `traceparent` and `tracestate`. Any other key is
   refused, with an error pointing to the request's `Configs`, and nothing is
   sent.
-- **The seed is transaction-wide.** `private.WithTransientMXF` bundles a
-  seed with the `mxf` data. In a request's `Configs` that seed yields to
-  the batch's, so pass `private.WithSeed()` to the batch; without it the
-  batch is refused.
+- **The seed is transaction-wide.** A batch sends one CSPRNG seed. If the
+  batch's own configs include `private.WithSeed()`, that seed is used.
+  Otherwise the seed bundled by the first request's
+  `private.WithTransientMXF` (or `private.WithSeed`) is promoted to the
+  batch and the rest are ignored; each is fresh and random, so any one is
+  as good as another. With no seed anywhere the batch is sent without one,
+  as a `Call` would be, and an MXF encode then fails the batch. A seed is
+  never sent per request, and a plain
+  `WithTransientData("csprng_seed_private", …)` in a request's `Configs` is
+  refused.
 - **What a request's `Configs` may set.** Allowed: transient data
   (`WithTransientData`, `WithTransientDataMap`, `private.WithTransientMXF`,
-  `private.WithSeed` as above) and no-op configs. Refused before anything is
-  sent, naming the option: `WithParams` and `WithID` (use the request's
+  `private.WithSeed`, whose seed is handled as above) and no-op configs.
+  Refused before anything is sent, naming the option: `WithParams` and `WithID` (use the request's
   `Params` and `ID`), `WithEndpoint`, `WithHeader`, `WithAuthToken`,
   `WithHTTPClient`, `WithLog`, `WithLogField`, `WithLogrusFields`,
   `WithMSPFilter`, `WithTargetEndpoints`, `WithoutTargetEndpoints`,

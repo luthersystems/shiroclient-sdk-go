@@ -188,9 +188,12 @@ func withParam(arg interface{}) shiroclient.Config {
 
 // WithSeed returns a shiroclient config that includes a CSPRNG seed.
 //
-// A CallBatch transaction has one seed: pass WithSeed in CallBatch's own
-// configs.  In a CallBatchRequest's Configs it sets nothing, and the batch
-// is refused unless its own configs set a seed.
+// Each call returns a fresh random seed.  A CallBatch or QueryBatch
+// transaction has one seed: WithSeed in the batch's own configs sets it.
+// Without one, the first request whose Configs carry WithSeed (as
+// WithTransientMXF's do) supplies it, and every other request's seed is
+// ignored; since each seed is fresh and random, any one is as good as
+// another.  A seed is never sent per request.
 func WithSeed() (shiroclient.Config, error) {
 	seed, err := SeedGen()
 	if err != nil {
@@ -202,9 +205,10 @@ func WithSeed() (shiroclient.Config, error) {
 // WithTransientMXF adds transient data used by MXF to encode and encrypt data.
 // This config is not compatible with `WithTransientIVs`.
 //
-// In CallBatch, pass the returned configs in a CallBatchRequest's Configs:
-// the "mxf" data is sent with that request only, and the seed they include
-// yields to the batch's own, which WithSeed must set in CallBatch's configs.
+// In CallBatch and QueryBatch, pass the returned configs in a
+// CallBatchRequest's Configs: the "mxf" data is sent with that request
+// only, and the seed they include becomes the transaction's seed unless the
+// batch's own configs or an earlier request supplied one (see WithSeed).
 func WithTransientMXF(req *EncodeRequest) ([]shiroclient.Config, error) {
 	if req == nil {
 		req = &EncodeRequest{}

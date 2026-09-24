@@ -133,9 +133,10 @@ var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 // Their transient data may hold only the transaction-wide keys
 // csprng_seed_private (private.WithSeed), timestamp_override, traceparent
 // and tracestate; any other key is refused and belongs in a request's
-// Configs.  A request whose Configs carry a CSPRNG seed
-// (private.WithTransientMXF does) requires private.WithSeed here, because a
-// transaction has one seed.  Keys starting with "$batch/" are reserved (the
+// Configs.  A transaction has one CSPRNG seed: private.WithSeed here sets
+// it; otherwise the first request whose Configs carry one
+// (private.WithTransientMXF does) supplies it and the others are ignored;
+// with none, the batch is sent without a seed, as a Call would be.  Keys starting with "$batch/" are reserved (the
 // gateway uses them to pack per-request keys) and are rejected, in Call too;
 // so is an empty key.  Per-request transient data needs substrate with
 // luthersystems/substrate#521.
