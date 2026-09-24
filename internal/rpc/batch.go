@@ -154,7 +154,7 @@ func batchRequestsJSON(requests []types.CallBatchRequest) ([]interface{}, error)
 			"method": r.Method,
 			"params": params,
 		}
-		transient, err := requestTransient(r)
+		transient, err := types.RequestTransient(r.Configs)
 		if err != nil {
 			return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: %w", i, err)
 		}
@@ -179,26 +179,6 @@ func batchRequestsJSON(requests []types.CallBatchRequest) ([]interface{}, error)
 		out[i] = elem
 	}
 	return out, nil
-}
-
-// requestTransient merges a request's Transient field with the transient
-// data its Configs set; the Configs win on a shared key.
-func requestTransient(r types.CallBatchRequest) (map[string][]byte, error) {
-	fromConfigs, err := types.RequestTransient(r.Configs)
-	if err != nil {
-		return nil, err
-	}
-	if len(r.Transient) == 0 {
-		return fromConfigs, nil
-	}
-	merged := make(map[string][]byte, len(r.Transient)+len(fromConfigs))
-	for k, v := range r.Transient {
-		merged[k] = v
-	}
-	for k, v := range fromConfigs {
-		merged[k] = v
-	}
-	return merged, nil
 }
 
 // batchParamsJSON encodes a request's params.  The gateway accepts only an

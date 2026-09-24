@@ -50,17 +50,6 @@ type CallBatchRequest struct {
 	// before the batch is sent.  When nil, the server uses the request's
 	// index in the batch.
 	ID interface{}
-	// Transient is transient data for this request only.  Inside the
-	// request, a transient read finds a key here first, then in the batch's
-	// shared transient data (WithTransientData).  It isolates the requests of
-	// a batch from each other; it does NOT hide the data from endorsing
-	// peers, which receive every request's transient data, as with Call.
-	// Keys must be non-empty and must not start with "$batch/".  Nil or
-	// empty sends nothing.  Needs substrate with
-	// luthersystems/substrate#521: a gateway without it has no CallBatch
-	// (ErrCallBatchNotSupported), and a #521 gateway talking to an older
-	// chaincode refuses the batch with an error and orders nothing.
-	Transient map[string][]byte
 	// Configs are Call configs for this request only, applied in order as
 	// for Call.  Only transient data may be set here: WithTransientData,
 	// WithTransientDataMap and helpers built on them.  That data is sent

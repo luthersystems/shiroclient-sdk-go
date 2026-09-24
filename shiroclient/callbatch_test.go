@@ -446,8 +446,8 @@ func TestCallBatchAbortedRequiresReservedCode(t *testing.T) {
 func TestCallBatchPerRequestTransient(t *testing.T) {
 	client, got, _ := batchGateway(t, batchCommitted)
 	_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
-		{Method: "deposit", Transient: map[string][]byte{"secret": []byte("alice")}},
-		{Method: "deposit", Transient: map[string][]byte{"secret": []byte("bob")}},
+		{Method: "deposit", Configs: []shiroclient.Config{shiroclient.WithTransientData("secret", []byte("alice"))}},
+		{Method: "deposit", Configs: []shiroclient.Config{shiroclient.WithTransientData("secret", []byte("bob"))}},
 	})
 	require.NoError(t, err)
 	params := (<-got)["params"].(map[string]interface{})
@@ -462,8 +462,8 @@ func TestCallBatchPerRequestTransient(t *testing.T) {
 func TestCallBatchSharedAndPerRequestTransient(t *testing.T) {
 	client, got, _ := batchGateway(t, batchCommitted)
 	_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
-		{Method: "a", Transient: map[string][]byte{"secret": []byte("own")}},
-		{Method: "b", Transient: map[string][]byte{}},
+		{Method: "a", Configs: []shiroclient.Config{shiroclient.WithTransientData("secret", []byte("own"))}},
+		{Method: "b", Configs: []shiroclient.Config{shiroclient.WithTransientDataMap(map[string][]byte{})}},
 	}, shiroclient.WithTransientData("shared", []byte("both")))
 	require.NoError(t, err)
 	params := (<-got)["params"].(map[string]interface{})
@@ -490,7 +490,7 @@ func TestCallBatchRejectsReservedTransientKeys(t *testing.T) {
 		"per-request $batch/ key": func() error {
 			_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
 				{Method: "a"},
-				{Method: "b", Transient: map[string][]byte{"$batch/0/secret": []byte("x")}},
+				{Method: "b", Configs: []shiroclient.Config{shiroclient.WithTransientData("$batch/0/secret", []byte("x"))}},
 			})
 			return err
 		},
@@ -502,12 +502,12 @@ func TestCallBatchRejectsReservedTransientKeys(t *testing.T) {
 		},
 		"Call $batch/ key": func() error {
 			_, err := client.Call(context.Background(), "a",
-				shiroclient.WithTransientDataMap(map[string][]byte{"$batch/0/k": []byte("x")}))
+				shiroclient.WithTransientData("$batch/0/k", []byte("x")))
 			return err
 		},
 		"empty per-request key": func() error {
 			_, err := shiroclient.CallBatch(context.Background(), client, []shiroclient.CallBatchRequest{
-				{Method: "a", Transient: map[string][]byte{"": []byte("x")}},
+				{Method: "a", Configs: []shiroclient.Config{shiroclient.WithTransientData("", []byte("x"))}},
 				{Method: "b"},
 			})
 			return err
