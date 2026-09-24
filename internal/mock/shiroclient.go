@@ -3,6 +3,7 @@ package mock
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -60,6 +61,8 @@ type MockShiroClient interface {
 type mockShiroClient struct {
 	baseConfig []types.Config
 	conn       *plugin.SubstrateConnection
+	// substrate is conn's Substrate (a fake in tests).
+	substrate plugin.Substrate
 	// release gives back the plugin connection: it kills a private
 	// process, or drops a reference to a shared one.
 	release     func() error
@@ -74,10 +77,19 @@ type mockShiroClient struct {
 // flatten with the caller's ctx so trace propagation, timestamps, and config
 // merge order stay consistent across the goplugin boundary.
 func (c *mockShiroClient) flatten(ctx context.Context, configs ...types.Config) (*plugin.ConcreteRequestOptions, error) {
+	return c.concrete(ctx, c.options(ctx, configs...))
+}
+
+// options applies the base configs, then configs, and injects the trace
+// context into the transient data.
+func (c *mockShiroClient) options(ctx context.Context, configs ...types.Config) *types.RequestOptions {
 	opt := types.ApplyConfigs(nil, append(c.baseConfig, configs...)...)
-
 	tracePropagator.Inject(ctx, traceCarrier(opt.Transient))
+	return opt
+}
 
+// concrete flattens opt to the plugin's pure-data options.
+func (c *mockShiroClient) concrete(ctx context.Context, opt *types.RequestOptions) (*plugin.ConcreteRequestOptions, error) {
 	params, err := json.Marshal(opt.Params)
 	if err != nil {
 		return nil, err
@@ -139,7 +151,7 @@ func (c *mockShiroClient) Init(ctx context.Context, phylum string, configs ...ty
 	if err != nil {
 		return err
 	}
-	return c.conn.GetSubstrate().Init(c.tag, phylum, cro)
+	return c.substrate.Init(c.tag, phylum, cro)
 }
 
 // Call implements the ShiroClient interface.
@@ -152,7 +164,7 @@ func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...ty
 		return nil, fmt.Errorf("ShiroClient.Call: %w", err)
 	}
 
-	resp, err := c.conn.GetSubstrate().Call(c.tag, method, cro)
+	resp, err := c.substrate.Call(c.tag, method, cro)
 	if err != nil {
 		return nil, err
 	}
@@ -166,20 +178,6 @@ func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...ty
 	return types.NewSuccessResponse(resp.ResultJSON, resp.TransactionID, 0, 0), nil
 }
 
-var _ types.CallBatcher = (*mockShiroClient)(nil)
-
-// CallBatch implements types.CallBatcher.  It always returns
-// types.ErrCallBatchNotSupported: the substrate plugin's RPC interface
-// (x/plugin.Substrate) has no batch method, and all-or-nothing semantics
-// cannot be faked here by issuing the requests as separate Calls.
-//
-// TODO(#38): route this through the plugin once a substrate release that
-// includes luthersystems/substrate#521 exposes batches over the plugin
-// interface, and bump SUBSTRATE_VERSION in common.config.mk.
-func (c *mockShiroClient) CallBatch(_ context.Context, _ []types.CallBatchRequest, _ ...types.Config) (*types.CallBatchResponse, error) {
-	return nil, fmt.Errorf("%w: the mock substrate plugin does not support batches yet", types.ErrCallBatchNotSupported)
-}
-
 // QueryInfo implements the ShiroClient interface.
 func (c *mockShiroClient) QueryInfo(ctx context.Context, configs ...types.Config) (uint64, error) {
 	cro, err := c.flatten(ctx, configs...)
@@ -187,7 +185,7 @@ func (c *mockShiroClient) QueryInfo(ctx context.Context, configs ...types.Config
 		return 0, err
 	}
 
-	return c.conn.GetSubstrate().QueryInfo(c.tag, cro)
+	return c.substrate.QueryInfo(c.tag, cro)
 }
 
 // QueryBlock implements the ShiroClient interface.
@@ -197,7 +195,7 @@ func (c *mockShiroClient) QueryBlock(ctx context.Context, blockNumber uint64, co
 		return nil, err
 	}
 
-	blk, err := c.conn.GetSubstrate().QueryBlock(c.tag, blockNumber, cro)
+	blk, err := c.substrate.QueryBlock(c.tag, blockNumber, cro)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +214,7 @@ func (c *mockShiroClient) QueryBlock(ctx context.Context, blockNumber uint64, co
 // Snapshot copies the current state of the mock backend out to the supplied
 // io.Writer.
 func (c *mockShiroClient) Snapshot(w io.Writer) error {
-	bytes, err := c.conn.GetSubstrate().SnapshotMock(c.tag)
+	bytes, err := c.substrate.SnapshotMock(c.tag)
 	if err != nil {
 		return err
 	}
@@ -227,7 +225,7 @@ func (c *mockShiroClient) Snapshot(w io.Writer) error {
 // SetCreatorWithAttributes sets the transaction creator and their attributes.
 // Any previously set creator attributes are discarded.
 func (c *mockShiroClient) SetCreatorWithAttributes(creator string, attrs map[string]string) error {
-	return c.conn.GetSubstrate().SetCreatorWithAttributesMock(c.tag, creator, attrs)
+	return c.substrate.SetCreatorWithAttributesMock(c.tag, creator, attrs)
 }
 
 // Close shuts down the mock backing database and releases the plugin
@@ -236,7 +234,7 @@ func (c *mockShiroClient) SetCreatorWithAttributes(creator string, attrs map[str
 // result.
 func (c *mockShiroClient) Close() error {
 	c.closeOnce.Do(func() {
-		errMock := c.conn.GetSubstrate().CloseMock(c.tag)
+		errMock := c.substrate.CloseMock(c.tag)
 		errPlugin := c.release()
 		if errMock != nil {
 			c.closeErr = fmt.Errorf("failed to close mock client: %w", errMock)
@@ -332,18 +330,131 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 	return &mockShiroClient{
 		baseConfig:  clientConfigs,
 		conn:        conn,
+		substrate:   conn.GetSubstrate(),
 		release:     release,
 		tag:         tag,
 		shiroPhylum: mockint.PhylumName,
 	}, nil
 }
 
-var _ types.QueryBatcher = (*mockShiroClient)(nil)
+var (
+	_ types.CallBatcher  = (*mockShiroClient)(nil)
+	_ types.QueryBatcher = (*mockShiroClient)(nil)
+)
 
-// QueryBatch implements types.QueryBatcher.  It always returns
-// types.ErrQueryBatchNotSupported, for the reason CallBatch does.
-//
-// TODO(#38): route this through the plugin with CallBatch.
-func (c *mockShiroClient) QueryBatch(_ context.Context, _ []types.CallBatchRequest, _ ...types.Config) (*types.CallBatchResponse, error) {
-	return nil, fmt.Errorf("%w: the mock substrate plugin does not support batches yet", types.ErrQueryBatchNotSupported)
+// CallBatch implements types.CallBatcher through the plugin's
+// BatchSubstrate.  Batches need a substratehcp release that implements
+// plugin.BatchSubstrate; an older plugin yields
+// types.ErrCallBatchNotSupported.  All-or-nothing semantics are never faked
+// by issuing the requests as separate Calls.
+func (c *mockShiroClient) CallBatch(ctx context.Context, requests []types.CallBatchRequest, configs ...types.Config) (*types.CallBatchResponse, error) {
+	return c.runBatch(ctx, false, requests, configs)
+}
+
+// QueryBatch implements types.QueryBatcher through the plugin's
+// BatchSubstrate, like CallBatch; an older plugin yields
+// types.ErrQueryBatchNotSupported.
+func (c *mockShiroClient) QueryBatch(ctx context.Context, requests []types.CallBatchRequest, configs ...types.Config) (*types.CallBatchResponse, error) {
+	return c.runBatch(ctx, true, requests, configs)
+}
+
+func (c *mockShiroClient) runBatch(ctx context.Context, query bool, requests []types.CallBatchRequest, configs []types.Config) (*types.CallBatchResponse, error) {
+	name, unsupported := "ShiroClient.CallBatch", types.ErrCallBatchNotSupported
+	if query {
+		name, unsupported = "ShiroClient.QueryBatch", types.ErrQueryBatchNotSupported
+	}
+	opt := c.options(ctx, configs...)
+	prepared, err := types.PrepareBatch(name, requests, opt)
+	if err != nil {
+		return nil, err
+	}
+	// Each request carries its own Params; the batch's are ignored.
+	opt.Params = nil
+	cro, err := c.concrete(ctx, opt)
+	if err != nil {
+		return nil, err
+	}
+	args := make([]plugin.BatchRequestArgs, len(prepared))
+	for i, r := range prepared {
+		args[i] = plugin.BatchRequestArgs{Method: r.Method, Params: []byte(r.Params), Transient: r.Transient}
+		if r.ID != nil {
+			if args[i].ID, err = json.Marshal(r.ID); err != nil {
+				return nil, fmt.Errorf("%s: request %d: id: %w", name, i, err)
+			}
+		}
+	}
+
+	bs, ok := c.substrate.(plugin.BatchSubstrate)
+	if !ok {
+		return nil, fmt.Errorf("%w: the mock substrate plugin does not support batches", unsupported)
+	}
+	run := bs.CallBatch
+	if query {
+		run = bs.QueryBatch
+	}
+	res, err := run(c.tag, args, cro)
+	if err != nil {
+		if errors.Is(err, plugin.ErrBatchNotSupported) {
+			return nil, fmt.Errorf("%w: the mock substrate plugin needs a substratehcp release that implements plugin.BatchSubstrate: %v", unsupported, err)
+		}
+		return nil, err
+	}
+	br, failed, err := batchResponse(name, res, len(requests))
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case query && br.Committed:
+		return nil, fmt.Errorf("%s: plugin reported the batch committed; a QueryBatch never commits", name)
+	case br.Committed && failed >= 0:
+		return nil, fmt.Errorf("%s: plugin reported the batch committed (txid=%s) with a failed request", name, br.TxID)
+	}
+	if br.Committed {
+		txctx.SetTransactionDetails(ctx, txctx.TransactionDetails{TransactionID: br.TxID})
+	}
+	if opt.ResponseReceiver != nil {
+		for _, r := range br.Responses {
+			opt.ResponseReceiver(r)
+		}
+	}
+	if failed >= 0 {
+		return br, &types.CallBatchError{Index: failed, ID: br.IDs[failed], Err: br.Responses[failed].Error()}
+	}
+	return br, nil
+}
+
+// batchResponse converts the plugin's answer, returning the failed request's
+// index or -1.
+func batchResponse(name string, res *plugin.BatchResponse, n int) (*types.CallBatchResponse, int, error) {
+	if res == nil || len(res.Responses) != n {
+		return nil, 0, fmt.Errorf("%s: plugin returned the wrong number of responses for %d requests", name, n)
+	}
+	br := &types.CallBatchResponse{
+		Responses: make([]types.ShiroResponse, n),
+		IDs:       make([]interface{}, n),
+		Committed: res.Committed,
+	}
+	if res.Committed {
+		br.TxID = res.TransactionID
+	}
+	for i, r := range res.Responses {
+		if r == nil {
+			return nil, 0, fmt.Errorf("%s: plugin returned no response for request %d", name, i)
+		}
+		if i < len(res.IDs) && len(res.IDs[i]) > 0 {
+			if err := json.Unmarshal(res.IDs[i], &br.IDs[i]); err != nil {
+				return nil, 0, fmt.Errorf("%s: id of response %d: %w", name, i, err)
+			}
+		}
+		if r.HasError {
+			br.Responses[i] = types.NewFailureResponse(r.ErrorCode, r.ErrorMessage, r.ErrorJSON)
+		} else {
+			br.Responses[i] = types.NewSuccessResponse(r.ResultJSON, br.TxID, 0, 0)
+		}
+	}
+	failed := br.FailedIndex()
+	if res.FailedIndex >= 0 && res.FailedIndex < n && br.Responses[res.FailedIndex].Error() != nil {
+		failed = res.FailedIndex
+	}
+	return br, failed, nil
 }

@@ -162,10 +162,15 @@ default:
   which also carries the per-request transient routing. An older gateway
   answers "method not found", and `CallBatch` returns an error matching
   `shiroclient.ErrCallBatchNotSupported` (`QueryBatch`:
-  `shiroclient.ErrQueryBatchNotSupported`) without running anything. The
-  mock client does not support batches yet (the substrate plugin has no
-  batch method) and returns the same errors. Neither function ever falls
-  back to separate `Call`s, which would not be atomic.
+  `shiroclient.ErrQueryBatchNotSupported`) without running anything.
+- **Mock mode.** The mock client runs batches through the substrate plugin,
+  which must implement `x/plugin.BatchSubstrate`. That needs a substratehcp
+  release with batch support; the SDK will bump `SUBSTRATE_VERSION` once it
+  ships. Until then the pinned plugin (v2.205.0) has no batch methods, and
+  the mock returns `ErrCallBatchNotSupported` / `ErrQueryBatchNotSupported`,
+  in private and shared-plugin (`mock.WithSharedPlugin`) mode alike.
+- **No fallback.** Neither function ever falls back to separate `Call`s,
+  which would not be atomic.
 - **Compatibility.** `CallBatch` and `QueryBatch` are package functions over
   the optional `shiroclient.CallBatcher` and `shiroclient.QueryBatcher`
   interfaces, so the `ShiroClient` interface is unchanged.

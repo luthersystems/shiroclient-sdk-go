@@ -100,7 +100,8 @@ type CallBatcher = types.CallBatcher
 // ErrCallBatchNotSupported matches, via errors.Is, a CallBatch that could not run
 // at all: the client does not implement CallBatcher, the gateway predates
 // luthersystems/substrate#521 ("method not found"), or the client is a mock
-// (the substrate plugin does not support batches yet).  Nothing was run.
+// whose substratehcp plugin does not implement plugin.BatchSubstrate (no
+// released substratehcp does yet).  Nothing was run.
 var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 
 // CallBatch runs several phylum methods as ONE transaction, all or nothing.
@@ -150,8 +151,9 @@ var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 // timed-out batch as a new batch, or as separate Calls, without reconciling.
 //
 // CallBatch needs a shiroclient gateway that includes
-// luthersystems/substrate#521.  With an older gateway, a mock client, or a
-// client that does not implement CallBatcher, it returns an error matching
+// luthersystems/substrate#521; a mock client needs a substratehcp plugin
+// that implements plugin.BatchSubstrate.  With an older gateway or plugin,
+// or a client that does not implement CallBatcher, it returns an error matching
 // ErrCallBatchNotSupported and runs nothing; it never falls back to separate
 // Calls, which would not be atomic.
 func CallBatch(ctx context.Context, client ShiroClient, requests []CallBatchRequest, configs ...Config) (*CallBatchResponse, error) {
@@ -168,8 +170,9 @@ type QueryBatcher = types.QueryBatcher
 
 // ErrQueryBatchNotSupported matches, via errors.Is, a QueryBatch that could
 // not run at all: the client does not implement QueryBatcher, the gateway
-// has no QueryBatch ("method not found"), or the client is a mock (the
-// substrate plugin does not support batches yet).  Nothing was run.
+// has no QueryBatch ("method not found"), or the client is a mock whose
+// substratehcp plugin does not implement plugin.BatchSubstrate.  Nothing was
+// run.
 var ErrQueryBatchNotSupported = types.ErrQueryBatchNotSupported
 
 // QueryBatch simulates several phylum methods as ONE transaction, all or
@@ -191,8 +194,10 @@ var ErrQueryBatchNotSupported = types.ErrQueryBatchNotSupported
 // Requests and configs are those of CallBatch, with the same rules: a
 // request's transient data goes in its CallBatchRequest.Configs, and the
 // batch's own configs may set only the transaction-wide transient keys.
-// QueryBatch needs a shiroclient gateway that supports it; with an older
-// gateway, a mock client, or a client that does not implement QueryBatcher,
+// QueryBatch needs a shiroclient gateway that supports it, or for a mock
+// client a substratehcp plugin that implements plugin.BatchSubstrate; with
+// an older gateway or plugin, or a client that does not implement
+// QueryBatcher,
 // it returns an error matching ErrQueryBatchNotSupported and runs nothing.
 func QueryBatch(ctx context.Context, client ShiroClient, requests []CallBatchRequest, configs ...Config) (*CallBatchResponse, error) {
 	qb, ok := client.(QueryBatcher)

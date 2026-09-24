@@ -1,13 +1,10 @@
 package rpc
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
-	"reflect"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/x/rpc"
@@ -58,17 +55,13 @@ func (c *rpcShiroClient) sendBatch(ctx context.Context, method string, unsupport
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := types.CheckBatchTransientKeys(opt.Transient); err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", name, err)
-	}
-	reqs, seed, err := batchRequestsJSON(name, requests)
+	prepared, err := types.PrepareBatch(name, requests, opt)
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, ok := opt.Transient[types.CSPRNGSeedKey]; !ok && seed != nil {
-		// The batch set no seed: promote the first request's.  Every
-		// private.WithSeed is fresh and random, so any one would do.
-		opt.Transient[types.CSPRNGSeedKey] = seed
+	reqs, err := batchRequestsJSON(prepared)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", name, err)
 	}
 	params, err := callOptionParams(ctx, opt)
 	if err != nil {
@@ -175,104 +168,29 @@ func batchError(br *types.CallBatchResponse, failed int) error {
 	}
 }
 
-// batchRequestsJSON renders requests as the gateway's "requests" parameter,
-// rejecting what the gateway would reject for the whole batch.
-//
-// seed is the CSPRNG seed of the first request whose configs carry one
-// (private.WithSeed, private.WithTransientMXF), or nil: a transaction has
-// one seed, so it is never sent per request.
-func batchRequestsJSON(name string, requests []types.CallBatchRequest) (out []interface{}, seed []byte, err error) {
-	if len(requests) == 0 {
-		return nil, nil, fmt.Errorf("%s: no requests", name)
-	}
-	out = make([]interface{}, len(requests))
+// batchRequestsJSON renders prepared requests as the gateway's "requests"
+// parameter.
+func batchRequestsJSON(requests []types.PreparedBatchRequest) ([]interface{}, error) {
+	out := make([]interface{}, len(requests))
 	for i, r := range requests {
-		if r.Method == "" {
-			return nil, nil, fmt.Errorf("%s: request %d has no method", name, i)
-		}
-		params, err := batchParamsJSON(r.Params)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%s: request %d: %w", name, i, err)
-		}
 		elem := map[string]interface{}{
 			"method": r.Method,
-			"params": params,
+			"params": r.Params,
 		}
-		transient, reqSeed, err := types.RequestTransient(r.Configs)
-		if err != nil {
-			return nil, nil, fmt.Errorf("%s: request %d: %w", name, i, err)
-		}
-		if seed == nil {
-			seed = reqSeed
-		}
-		if len(transient) > 0 {
-			transientJSON, err := encodeTransient(transient)
+		if len(r.Transient) > 0 {
+			transientJSON, err := encodeTransient(r.Transient)
 			if err != nil {
-				return nil, nil, fmt.Errorf("%s: request %d: %w", name, i, err)
+				return nil, fmt.Errorf("request %d: %w", i, err)
 			}
 			elem["transient"] = transientJSON
 		}
 		if r.ID != nil {
-			if !validBatchID(r.ID) {
-				return nil, nil, fmt.Errorf("%s: request %d: id must be a string, or a number within ±2^53 (the gateway decodes ids as float64); got %T %v", name, i, r.ID, r.ID)
-			}
 			elem["id"] = r.ID
 		}
 		out[i] = elem
 	}
-	return out, seed, nil
+	return out, nil
 }
-
-// batchParamsJSON encodes a request's params.  The gateway accepts only an
-// array or an object; anything that encodes to null (nil, or a typed nil
-// slice, map or pointer) is sent as an empty array.
-func batchParamsJSON(params interface{}) (json.RawMessage, error) {
-	b, err := json.Marshal(params)
-	if err != nil {
-		return nil, fmt.Errorf("params: %w", err)
-	}
-	b = bytes.TrimSpace(b)
-	switch {
-	case bytes.Equal(b, []byte("null")):
-		return json.RawMessage("[]"), nil
-	case len(b) > 0 && (b[0] == '[' || b[0] == '{'):
-		return json.RawMessage(b), nil
-	default:
-		return nil, fmt.Errorf("params must encode to an array or an object, not %s", b)
-	}
-}
-
-// validBatchID reports whether id is a JSON-RPC id the gateway echoes: a
-// string or a number.
-func validBatchID(id interface{}) bool {
-	if n, ok := id.(json.Number); ok {
-		if i, err := n.Int64(); err == nil {
-			return i >= -maxExactBatchID && i <= maxExactBatchID
-		}
-		f, err := n.Float64()
-		return err == nil && !math.IsInf(f, 0) && !math.IsNaN(f)
-	}
-	// Kinds, not exact types, so a caller's own id type (type OrderID
-	// string) is accepted. Integers are limited to +/-2^53 because the
-	// gateway decodes ids as float64: a larger id would come back changed.
-	v := reflect.ValueOf(id)
-	switch v.Kind() {
-	case reflect.String:
-		return true
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return v.Int() >= -maxExactBatchID && v.Int() <= maxExactBatchID
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return v.Uint() <= maxExactBatchID
-	case reflect.Float32, reflect.Float64:
-		f := v.Float()
-		return !math.IsInf(f, 0) && !math.IsNaN(f)
-	default:
-		return false
-	}
-}
-
-// maxExactBatchID is the largest integer a float64 holds exactly (2^53).
-const maxExactBatchID = 1 << 53
 
 // parseBatchResult decodes a CallBatch or QueryBatch result: one Call-shaped
 // result per request, plus the "committed" flag, which only a CallBatch
