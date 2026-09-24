@@ -139,11 +139,27 @@ type CallBatchRequest struct {
 	ID interface{}
 	// Configs are Call configs for this request only, applied in order as
 	// for Call.  Only transient data may be set here: WithTransientData,
-	// WithTransientDataMap and helpers built on them.  That data is sent
-	// with this request alone.  Every other option applies to the whole
-	// transaction or to the HTTP call, so it is refused before the batch is
-	// sent; pass it in CallBatch's own configs instead.  Params and the
-	// JSON-RPC id are the Params and ID fields.
+	// WithTransientDataMap and helpers built on them, such as
+	// private.WithTransientMXF.  That data is sent with this request alone.
+	// It routes the data to this request; it does not hide it from phylum
+	// code or from endorsing peers, which receive every request's data.
+	//
+	// Keys must be non-empty, must not start with "$batch/", and must not
+	// be a transaction-wide key (TransactionTransientKeys), which belongs in
+	// the batch's own configs.  The CSPRNG seed that private.WithSeed and
+	// private.WithTransientMXF carry is the exception: here it sets nothing,
+	// and the batch's own configs must set the transaction's one seed.
+	//
+	// Every other option applies to the whole transaction or to the HTTP
+	// call and is refused before the batch is sent, naming the option:
+	// WithParams and WithID (use Params and ID), WithEndpoint, WithHeader,
+	// WithAuthToken, WithHTTPClient, WithLog, WithLogField,
+	// WithLogrusFields, WithMSPFilter, WithTargetEndpoints,
+	// WithoutTargetEndpoints, WithMinEndorsers, WithCreator,
+	// WithDependentTxID, WithDependentBlock, WithPhylumVersion,
+	// WithDisableWritePolling, WithTimestampGenerator, WithCCFetchURLProxy,
+	// WithCCFetchURLDowngrade, WithResponse, WithResponseReceiver and
+	// WithUnsafeDebug.  Pass those in the batch's own configs.
 	Configs []Config
 	// Method is the phylum endpoint to call.
 	Method string

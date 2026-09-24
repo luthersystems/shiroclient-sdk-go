@@ -117,18 +117,27 @@ var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 // whose method forces its transaction not to commit, such as private_decode,
 // fails the batch with CodeForcedNoCommit: run it with QueryBatch instead.
 //
-// The configs are those of Call, applied once to the whole batch.  Transient
-// data (WithTransientData) is shared by every request, and every request runs
-// against the same phylum version (WithPhylumVersion).  WithParams is
-// ignored: each request carries its own Params.
+// Transient data belongs to a request: build each request like a Call, with
+// its own transient data in CallBatchRequest.Configs (WithTransientData,
+// WithTransientDataMap, private.WithTransientMXF), and the batch sends it
+// with that request only.  This routes each request's data to the right
+// request; it does not hide it from phylum code, which is trusted, nor from
+// endorsing peers, which Fabric sends all of it, as with Call.  Only
+// transient data may be set per request; every other option is refused
+// before anything is sent (see CallBatchRequest.Configs).
 //
-// A request's own transient data goes in CallBatchRequest.Configs
-// (WithTransientData, WithTransientDataMap): it is sent with that request
-// only, and a transient read inside it finds the request's key first, then
-// the shared one.  Other options are refused in CallBatchRequest.Configs.
-// Keys starting with "$batch/" are reserved (the gateway uses them to pack
-// per-request keys) and are rejected, in Call too; so is an empty
-// per-request key.  Per-request transient data needs substrate with
+// The configs passed to CallBatch itself apply to the whole transaction:
+// endpoint, headers, MSP filter, target endpoints, min endorsers, creator,
+// dependent txid or block, phylum version, write polling, timestamp
+// generator.  WithParams is ignored: each request carries its own Params.
+// Their transient data may hold only the transaction-wide keys
+// csprng_seed_private (private.WithSeed), timestamp_override, traceparent
+// and tracestate; any other key is refused and belongs in a request's
+// Configs.  A request whose Configs carry a CSPRNG seed
+// (private.WithTransientMXF does) requires private.WithSeed here, because a
+// transaction has one seed.  Keys starting with "$batch/" are reserved (the
+// gateway uses them to pack per-request keys) and are rejected, in Call too;
+// so is an empty key.  Per-request transient data needs substrate with
 // luthersystems/substrate#521.
 //
 // A timeout (IsTimeoutError) means the batch MAY have committed: CallBatch

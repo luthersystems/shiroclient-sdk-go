@@ -55,19 +55,41 @@ Because the SDK launches the plugin as a child process that inherits the parent'
 
 ---
 
-## ⚛️ Atomic Multi-Call (`CallBatch`)
+## ⚛️ Atomic Multi-Call (`CallBatch` and `QueryBatch`)
 
 `shiroclient.CallBatch` runs several phylum methods as **one** transaction,
 all or nothing. Requests run in order and each sees the writes of the ones
-before it.
+before it. `shiroclient.QueryBatch` takes the same requests and runs them
+the same way, but never commits.
+
+|                         | `CallBatch`                                      | `QueryBatch`                                       |
+|-------------------------|--------------------------------------------------|----------------------------------------------------|
+| Purpose                 | Write: commit several requests together          | Read or simulate several requests together         |
+| Every request must succeed | Yes: the first failure stops the batch        | Yes: the first failure stops the batch             |
+| Commits                 | The writes, once, as one transaction             | Never; nothing is ordered                          |
+| Later requests see earlier writes | Yes                                    | Yes, the simulated writes, then discarded          |
+| Write-then-discard requests (`private_decode`) | Refused: they fail the batch with `CodeForcedNoCommit` | Allowed: they belong here  |
+| Result on failure       | `CallBatchResponse` + `*CallBatchError`          | `CallBatchResponse` + `*CallBatchError`            |
+| `Committed` / `TxID`    | Set when the batch wrote state                   | Always `false` / empty                             |
+
+Build each request like a `Call`, including its own transient data, and hand
+the list to the batch. Configs passed to the batch itself apply to the whole
+transaction.
 
 ```go
+aliceMXF, err := private.WithTransientMXF(&private.EncodeRequest{Message: alice, Transforms: transforms})
+if err != nil { return err }
+bobMXF, err := private.WithTransientMXF(&private.EncodeRequest{Message: bob, Transforms: transforms})
+if err != nil { return err }
+seed, err := private.WithSeed() // one CSPRNG seed per transaction
+if err != nil { return err }
+
 resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.CallBatchRequest{
-  {Method: "deposit", Params: []interface{}{aliceDeposit}, ID: "alice",
-    Transient: map[string][]byte{"secret": aliceSecret}},
-  {Method: "deposit", Params: []interface{}{bobDeposit}, ID: "bob",
-    Transient: map[string][]byte{"secret": bobSecret}},
-}, shiroclient.WithTransientData("key", sharedKey)) // shared by both
+  {Method: "create_profile", ID: "alice", Configs: aliceMXF},
+  {Method: "create_profile", ID: "bob", Configs: bobMXF},
+  {Method: "deposit", Params: []interface{}{aliceDeposit}, ID: "deposit",
+    Configs: []shiroclient.Config{shiroclient.WithTransientData("secret", aliceSecret)}},
+}, seed) // batch level: the seed, and options such as WithMSPFilter
 var batchErr *shiroclient.CallBatchError
 switch {
 case errors.As(err, &batchErr):
@@ -89,7 +111,9 @@ default:
 
 - **All or nothing.** If any request fails, nothing is committed, and
   `CallBatch` returns the `CallBatchResponse` together with a `*CallBatchError`.
-  A batch that only reads is not committed and has no `TxID`.
+  A batch that only reads is not committed and has no `TxID`. `QueryBatch`
+  fails the same way, since results after a failed request rest on a
+  simulation that went wrong.
 - **Timeouts are not failures.** A timeout (`IsTimeoutError`) means the
   batch may have committed. Never run it again, as a new batch or as
   separate calls, without reconciling against the ledger first. A gateway
@@ -97,30 +121,50 @@ default:
   [luthersystems/substrate#515](https://github.com/luthersystems/substrate/pull/515)
   also reports `ErrOutcomeUnknown` with the transaction ID
   (`OutcomeUnknownTxID`). An older gateway sends only the timeout.
-- **Shared options.** Configs apply to the whole batch, as for `Call`:
-  transient data from `WithTransientData` is shared by every request, and
-  every request runs against the same phylum version.
-- **Per-request transient data.** `CallBatchRequest.Transient` is seen only
-  by its own request: a transient read there finds the request's key first,
-  then the shared one, so two deposits can each carry their own `"secret"`.
-  This isolates the requests from each other. It does **not** hide the data
-  from endorsing peers: Fabric sends all of it to every endorser, as for
-  `Call`. Keys starting with `$batch/` are reserved and rejected (also in
-  `Call`), as is an empty per-request key; nothing is sent. Per-request
-  transient data needs substrate with luthersystems/substrate#521. A gateway
-  without #521 has no `CallBatch` at all (`ErrCallBatchNotSupported`). A
-  #521 gateway talking to an older chaincode refuses the batch with an
-  error and orders nothing.
+- **Per-request transient data.** Put a request's transient data in its
+  `CallBatchRequest.Configs`: `WithTransientData`, `WithTransientDataMap`,
+  or helpers built on them such as `private.WithTransientMXF`. The batch
+  sends each request's data with that request only, so two requests can
+  each carry their own `"mxf"` or `"secret"`. This gives **correct
+  per-request routing, not isolation from phylum code**: the phylum is
+  trusted, and Fabric sends the whole transient map to every endorser, as
+  for `Call`.
+- **Batch-level configs apply to the whole transaction.** Pass them to
+  `CallBatch` / `QueryBatch` itself. Their transient data may hold only the
+  transaction-wide keys `csprng_seed_private` (`private.WithSeed`),
+  `timestamp_override`, `traceparent` and `tracestate`. Any other key is
+  refused, with an error pointing to the request's `Configs`, and nothing is
+  sent.
+- **The seed is transaction-wide.** `private.WithTransientMXF` bundles a
+  seed with the `mxf` data. In a request's `Configs` that seed yields to
+  the batch's, so pass `private.WithSeed()` to the batch; without it the
+  batch is refused.
+- **What a request's `Configs` may set.** Allowed: transient data
+  (`WithTransientData`, `WithTransientDataMap`, `private.WithTransientMXF`,
+  `private.WithSeed` as above) and no-op configs. Refused before anything is
+  sent, naming the option: `WithParams` and `WithID` (use the request's
+  `Params` and `ID`), `WithEndpoint`, `WithHeader`, `WithAuthToken`,
+  `WithHTTPClient`, `WithLog`, `WithLogField`, `WithLogrusFields`,
+  `WithMSPFilter`, `WithTargetEndpoints`, `WithoutTargetEndpoints`,
+  `WithMinEndorsers`, `WithCreator`, `WithDependentTxID`,
+  `WithDependentBlock`, `WithPhylumVersion`, `WithDisableWritePolling`,
+  `WithTimestampGenerator`, `WithCCFetchURLProxy`,
+  `WithCCFetchURLDowngrade`, `WithResponse`, `WithResponseReceiver` and
+  `WithUnsafeDebug`. A request's transient keys must also be non-empty, must
+  not be one of the four transaction-wide keys, and must not start with
+  `$batch/`, which is reserved (also in `Call`).
 - **Requirements.** The gateway must include
-  [luthersystems/substrate#521](https://github.com/luthersystems/substrate/pull/521).
-  An older gateway answers "method not found", and `CallBatch` returns an
-  error matching `shiroclient.ErrCallBatchNotSupported` without running
-  anything. The mock client does not support batches yet (the substrate
-  plugin has no batch method) and returns the same error. `CallBatch` never
-  falls back to separate `Call`s, which would not be atomic.
-- **Compatibility.** `CallBatch` is a package function over the optional
-  `shiroclient.CallBatcher` interface, so the `ShiroClient` interface is
-  unchanged.
+  [luthersystems/substrate#521](https://github.com/luthersystems/substrate/pull/521),
+  which also carries the per-request transient routing. An older gateway
+  answers "method not found", and `CallBatch` returns an error matching
+  `shiroclient.ErrCallBatchNotSupported` (`QueryBatch`:
+  `shiroclient.ErrQueryBatchNotSupported`) without running anything. The
+  mock client does not support batches yet (the substrate plugin has no
+  batch method) and returns the same errors. Neither function ever falls
+  back to separate `Call`s, which would not be atomic.
+- **Compatibility.** `CallBatch` and `QueryBatch` are package functions over
+  the optional `shiroclient.CallBatcher` and `shiroclient.QueryBatcher`
+  interfaces, so the `ShiroClient` interface is unchanged.
 
 ---
 
