@@ -84,6 +84,28 @@ func sortedKeys(m map[string][]byte) []string {
 	return keys
 }
 
+// CSPRNGSeedKey is the transient key of a transaction's CSPRNG seed.
+const CSPRNGSeedKey = "csprng_seed_private"
+
+// csprngSeedConfig sets CSPRNGSeedKey.  It is a type of its own so that
+// RequestTransient can recognise it in a request's Configs.
+type csprngSeedConfig struct {
+	seed []byte
+}
+
+// Fn implements Config.
+func (c *csprngSeedConfig) Fn(r *RequestOptions) {
+	r.Transient[CSPRNGSeedKey] = c.seed
+}
+
+// CSPRNGSeedConfig returns a Config that sets the CSPRNG seed transient
+// key.  A transaction has one seed, so in a CallBatchRequest's Configs this
+// config sets nothing: the request uses the seed the batch's own configs
+// set, and RequestTransient reports it so the batch can insist on one.
+func CSPRNGSeedConfig(seed []byte) Config {
+	return &csprngSeedConfig{seed: seed}
+}
+
 // CallBatcher is implemented by clients that can run several phylum methods
 // as one all-or-nothing transaction.  It is separate from ShiroClient so that
 // adding it did not break other implementations of that interface.
@@ -243,10 +265,12 @@ var requestOptionNames = map[string]string{
 // transient data they set, or nil when they set none.  Every other option
 // is refused: it applies to the whole transaction or the HTTP call, not to
 // one request.  A new RequestOptions field is refused until it is known to
-// be per-request.
-func RequestTransient(configs []Config) (map[string][]byte, error) {
+// be per-request.  A CSPRNGSeedConfig (private.WithSeed, and so
+// private.WithTransientMXF) is skipped and reported as seeded: the batch's
+// own configs must set the transaction's seed.
+func RequestTransient(configs []Config) (transient map[string][]byte, seeded bool, err error) {
 	if len(configs) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 	newOpts := func() *RequestOptions {
 		return &RequestOptions{
@@ -258,7 +282,11 @@ func RequestTransient(configs []Config) (map[string][]byte, error) {
 	opt, blank := newOpts(), newOpts()
 	for i, c := range configs {
 		if c == nil {
-			return nil, fmt.Errorf("config %d is nil", i)
+			return nil, false, fmt.Errorf("config %d is nil", i)
+		}
+		if _, ok := c.(*csprngSeedConfig); ok {
+			seeded = true
+			continue
 		}
 		c.Fn(opt)
 	}
@@ -275,14 +303,14 @@ func RequestTransient(configs []Config) (map[string][]byte, error) {
 			if !ok {
 				label = name
 			}
-			return nil, fmt.Errorf("%s cannot be set per request: it applies to the whole transaction or HTTP call; pass it in CallBatch's configs", label)
+			return nil, false, fmt.Errorf("%s cannot be set per request: it applies to the whole transaction or HTTP call; pass it in CallBatch's configs", label)
 		}
 	}
 	if len(opt.Transient) == 0 {
-		return nil, nil
+		return nil, seeded, nil
 	}
 	if err := checkRequestTransientKeys(opt.Transient); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return opt.Transient, nil
+	return opt.Transient, seeded, nil
 }

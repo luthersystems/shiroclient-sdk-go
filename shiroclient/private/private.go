@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
 )
 
@@ -186,16 +187,24 @@ func withParam(arg interface{}) shiroclient.Config {
 }
 
 // WithSeed returns a shiroclient config that includes a CSPRNG seed.
+//
+// A CallBatch transaction has one seed: pass WithSeed in CallBatch's own
+// configs.  In a CallBatchRequest's Configs it sets nothing, and the batch
+// is refused unless its own configs set a seed.
 func WithSeed() (shiroclient.Config, error) {
 	seed, err := SeedGen()
 	if err != nil {
 		return nil, err
 	}
-	return shiroclient.WithTransientData("csprng_seed_private", seed), nil
+	return types.CSPRNGSeedConfig(seed), nil
 }
 
 // WithTransientMXF adds transient data used by MXF to encode and encrypt data.
 // This config is not compatible with `WithTransientIVs`.
+//
+// In CallBatch, pass the returned configs in a CallBatchRequest's Configs:
+// the "mxf" data is sent with that request only, and the seed they include
+// yields to the batch's own, which WithSeed must set in CallBatch's configs.
 func WithTransientMXF(req *EncodeRequest) ([]shiroclient.Config, error) {
 	if req == nil {
 		req = &EncodeRequest{}

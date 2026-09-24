@@ -58,7 +58,8 @@ func (c *rpcShiroClient) CallBatch(ctx context.Context, requests []types.CallBat
 	if err := types.CheckBatchTransientKeys(opt.Transient); err != nil {
 		return nil, fmt.Errorf("ShiroClient.CallBatch: %w", err)
 	}
-	reqs, err := batchRequestsJSON(requests)
+	_, batchSeeded := opt.Transient[types.CSPRNGSeedKey]
+	reqs, err := batchRequestsJSON(requests, batchSeeded)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +141,11 @@ func batchError(br *types.CallBatchResponse, failed int) error {
 
 // batchRequestsJSON renders requests as the gateway's "requests" parameter,
 // rejecting what the gateway would reject for the whole batch.
-func batchRequestsJSON(requests []types.CallBatchRequest) ([]interface{}, error) {
+//
+// batchSeeded reports whether the batch's own configs set the CSPRNG seed,
+// which a request whose configs carry one (private.WithSeed,
+// private.WithTransientMXF) requires: a transaction has one seed.
+func batchRequestsJSON(requests []types.CallBatchRequest, batchSeeded bool) ([]interface{}, error) {
 	if len(requests) == 0 {
 		return nil, errors.New("ShiroClient.CallBatch: no requests")
 	}
@@ -157,9 +162,12 @@ func batchRequestsJSON(requests []types.CallBatchRequest) ([]interface{}, error)
 			"method": r.Method,
 			"params": params,
 		}
-		transient, err := types.RequestTransient(r.Configs)
+		transient, seeded, err := types.RequestTransient(r.Configs)
 		if err != nil {
 			return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: %w", i, err)
+		}
+		if seeded && !batchSeeded {
+			return nil, fmt.Errorf("ShiroClient.CallBatch: request %d: its configs carry a CSPRNG seed (private.WithSeed or private.WithTransientMXF), but a transaction has one seed: pass private.WithSeed() in CallBatch's configs", i)
 		}
 		if len(transient) > 0 {
 			transientJSON, err := encodeTransient(transient)

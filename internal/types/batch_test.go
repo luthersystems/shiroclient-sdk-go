@@ -50,7 +50,7 @@ func TestRequestTransientRefusesEveryOtherField(t *testing.T) {
 					t.Fatalf("field %s: kind %s not covered by this test", f.Name, v.Kind())
 				}
 			})
-			_, err := RequestTransient([]Config{cfg})
+			_, _, err := RequestTransient([]Config{cfg})
 			require.Error(t, err)
 			if name, ok := requestOptionNames[f.Name]; ok {
 				assert.Contains(t, err.Error(), name)
