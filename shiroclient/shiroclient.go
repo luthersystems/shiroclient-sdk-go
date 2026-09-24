@@ -169,6 +169,14 @@ func NewRPC(clientConfigs []Config) ShiroClient {
 	return rpc.NewRPC(clientConfigs)
 }
 
+// ShutdownSharedMockPlugins stops every plugin process shared by mocks
+// created with mock.WithSharedPlugin, including processes that still host
+// open mocks. Call it when a suite finishes (for example in TestMain after
+// m.Run) to stop idle processes without waiting for their idle timeout.
+func ShutdownSharedMockPlugins() error {
+	return imock.ShutdownSharedPlugins()
+}
+
 // NewMock creates a new mock ShiroClient with the given set of base
 // configs that will be applied to all commands.
 func NewMock(clientConfigs []Config, opts ...mock.Option) (MockShiroClient, error) {
