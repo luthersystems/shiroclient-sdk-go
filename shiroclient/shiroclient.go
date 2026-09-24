@@ -82,8 +82,9 @@ func OutcomeUnknownTxID(err error) (txID string, ok bool) {
 // parameters and an optional JSON-RPC id.
 type CallBatchRequest = types.CallBatchRequest
 
-// CallBatchResponse is the result of a CallBatch: one response per request, in
-// request order, and the batch's single transaction.
+// CallBatchResponse is the result of a CallBatch or QueryBatch: one response
+// per request, in request order, and the batch's single transaction (none for
+// a QueryBatch).
 type CallBatchResponse = types.CallBatchResponse
 
 // CallBatchError is the error CallBatch returns, together with the
@@ -149,6 +150,46 @@ func CallBatch(ctx context.Context, client ShiroClient, requests []CallBatchRequ
 		return nil, fmt.Errorf("%w: %T does not implement CallBatcher", ErrCallBatchNotSupported, client)
 	}
 	return bc.CallBatch(ctx, requests, configs...)
+}
+
+// QueryBatcher is implemented by clients that support QueryBatch; NewRPC and
+// NewMock clients do.  It is not part of ShiroClient.
+type QueryBatcher = types.QueryBatcher
+
+// ErrQueryBatchNotSupported matches, via errors.Is, a QueryBatch that could
+// not run at all: the client does not implement QueryBatcher, the gateway
+// has no QueryBatch ("method not found"), or the client is a mock (the
+// substrate plugin does not support batches yet).  Nothing was run.
+var ErrQueryBatchNotSupported = types.ErrQueryBatchNotSupported
+
+// QueryBatch simulates several phylum methods as ONE transaction, all or
+// nothing, and never commits or orders it.
+//
+// It is CallBatch without the commit.  Requests run in order in one
+// simulation and each sees the simulated writes of the ones before it; the
+// writes are then discarded.  Every request must succeed: the first failure
+// stops the batch, because the later results would rest on a simulation
+// that went wrong.  QueryBatch then returns the CallBatchResponse together
+// with a *CallBatchError naming the failed request, whose response carries
+// its own error; every other request's response carries a "batch aborted"
+// error (see CallBatchAborted).  On success every response holds its
+// request's result; Committed is false and TxID is empty.
+//
+// Unlike CallBatch, a request whose method forces its transaction not to
+// commit, such as private_decode, may run in a QueryBatch.
+//
+// Requests and configs are those of CallBatch, with the same rules: a
+// request's transient data goes in its CallBatchRequest.Configs, and the
+// batch's own configs may set only the transaction-wide transient keys.
+// QueryBatch needs a shiroclient gateway that supports it; with an older
+// gateway, a mock client, or a client that does not implement QueryBatcher,
+// it returns an error matching ErrQueryBatchNotSupported and runs nothing.
+func QueryBatch(ctx context.Context, client ShiroClient, requests []CallBatchRequest, configs ...Config) (*CallBatchResponse, error) {
+	qb, ok := client.(QueryBatcher)
+	if !ok {
+		return nil, fmt.Errorf("%w: %T does not implement QueryBatcher", ErrQueryBatchNotSupported, client)
+	}
+	return qb.QueryBatch(ctx, requests, configs...)
 }
 
 // CodeBatchAborted is the JSON-RPC error code substrate reserves for a request

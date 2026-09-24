@@ -16,6 +16,12 @@ import (
 // yet.  Nothing was run.
 var ErrCallBatchNotSupported = errors.New("shiroclient: CallBatch not supported")
 
+// ErrQueryBatchNotSupported is returned by QueryBatch when the client or the
+// gateway cannot run one: a gateway without QueryBatch answers "method not
+// found", and the mock plugin does not support batches yet.  Nothing was
+// run.
+var ErrQueryBatchNotSupported = errors.New("shiroclient: QueryBatch not supported")
+
 // BatchTransientPrefix is reserved: the gateway packs a CallBatch request's
 // own transient keys as "$batch/<index>/<key>", and rejects a caller's key
 // with this prefix in Call and CallBatch alike.
@@ -113,7 +119,13 @@ type CallBatcher interface {
 	CallBatch(ctx context.Context, requests []CallBatchRequest, config ...Config) (*CallBatchResponse, error)
 }
 
-// CallBatchRequest is one request of a CallBatch.
+// QueryBatcher is implemented by clients that can simulate several phylum
+// methods as one all-or-nothing transaction that is never committed.
+type QueryBatcher interface {
+	QueryBatch(ctx context.Context, requests []CallBatchRequest, config ...Config) (*CallBatchResponse, error)
+}
+
+// CallBatchRequest is one request of a CallBatch or a QueryBatch.
 type CallBatchRequest struct {
 	// Params are the method's parameters, which must encode to a JSON array
 	// or object.  Anything that encodes to null (nil, or a nil slice, map or
@@ -137,7 +149,8 @@ type CallBatchRequest struct {
 	Method string
 }
 
-// CallBatchResponse is the result of a CallBatch.
+// CallBatchResponse is the result of a CallBatch or a QueryBatch.  A
+// QueryBatch is never committed: Committed is false and TxID is empty.
 type CallBatchResponse struct {
 	// Responses holds one response per request, in request order.  In a
 	// batch that was not committed because a request failed, every response
@@ -179,8 +192,9 @@ func (r *CallBatchResponse) FailedIndex() int {
 	return first
 }
 
-// CallBatchError is returned, together with the CallBatchResponse, when a request of
-// a batch failed and so nothing was committed.
+// CallBatchError is returned, together with the CallBatchResponse, when a
+// request of a CallBatch or QueryBatch failed and so nothing was committed
+// and the other requests' results are void.
 type CallBatchError struct {
 	// ID is the failed request's JSON-RPC id, as in CallBatchResponse.IDs.
 	ID interface{}

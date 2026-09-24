@@ -337,3 +337,13 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 		shiroPhylum: mockint.PhylumName,
 	}, nil
 }
+
+var _ types.QueryBatcher = (*mockShiroClient)(nil)
+
+// QueryBatch implements types.QueryBatcher.  It always returns
+// types.ErrQueryBatchNotSupported, for the reason CallBatch does.
+//
+// TODO(#38): route this through the plugin with CallBatch.
+func (c *mockShiroClient) QueryBatch(_ context.Context, _ []types.CallBatchRequest, _ ...types.Config) (*types.CallBatchResponse, error) {
+	return nil, fmt.Errorf("%w: the mock substrate plugin does not support batches yet", types.ErrQueryBatchNotSupported)
+}
