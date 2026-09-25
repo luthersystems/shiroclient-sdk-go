@@ -55,19 +55,39 @@ Because the SDK launches the plugin as a child process that inherits the parent'
 
 ---
 
-## ⚛️ Atomic Multi-Call (`CallBatch`)
+## ⚛️ Atomic Multi-Call (`CallBatch` and `QueryBatch`)
 
 `shiroclient.CallBatch` runs several phylum methods as **one** transaction,
-all or nothing. Requests run in order and each sees the writes of the ones
+all or nothing. `shiroclient.QueryBatch` takes the same requests and runs
+them the same way, but is never committed to the ledger. In both, requests
+always run in the order given, each seeing the writes of the requests
 before it.
 
+|                         | `CallBatch`                                      | `QueryBatch`                                       |
+|-------------------------|--------------------------------------------------|----------------------------------------------------|
+| Purpose                 | Write: commit several requests together          | Read or simulate several requests together         |
+| Every request must succeed | Yes: the first failure stops the batch        | Yes: the first failure stops the batch             |
+| Commits                 | The writes, once, as one transaction             | Never committed to the ledger                      |
+| Request order           | As given; each sees earlier requests' writes     | As given; each sees earlier requests' writes (then discarded) |
+| Write-then-discard requests (`private_decode`) | Refused: they fail the batch with `CodeForcedNoCommit` | Allowed: they belong here  |
+| Result on failure       | `CallBatchResponse` + `*CallBatchError`          | `CallBatchResponse` + `*CallBatchError`            |
+| `Committed` / `TxID`    | Set when the batch wrote state                   | Always `false` / empty                             |
+
+Build each request like a `Call`, including its own transient data, and hand
+the list to the batch. Configs passed to the batch itself apply to the whole
+transaction.
+
 ```go
+aliceMXF, err := private.WithTransientMXF(&private.EncodeRequest{Message: alice, Transforms: transforms})
+if err != nil { return err }
+bobMXF, err := private.WithTransientMXF(&private.EncodeRequest{Message: bob, Transforms: transforms})
+if err != nil { return err }
 resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.CallBatchRequest{
-  {Method: "deposit", Params: []interface{}{aliceDeposit}, ID: "alice",
-    Transient: map[string][]byte{"secret": aliceSecret}},
-  {Method: "deposit", Params: []interface{}{bobDeposit}, ID: "bob",
-    Transient: map[string][]byte{"secret": bobSecret}},
-}, shiroclient.WithTransientData("key", sharedKey)) // shared by both
+  {Method: "create_profile", ID: "alice", Configs: aliceMXF},
+  {Method: "create_profile", ID: "bob", Configs: bobMXF},
+  {Method: "deposit", Params: []interface{}{aliceDeposit}, ID: "deposit",
+    Configs: []shiroclient.Config{shiroclient.WithTransientData("secret", aliceSecret)}},
+}) // batch-level configs go here, e.g. WithMSPFilter; optionally private.WithSeed()
 var batchErr *shiroclient.CallBatchError
 switch {
 case errors.As(err, &batchErr):
@@ -89,7 +109,9 @@ default:
 
 - **All or nothing.** If any request fails, nothing is committed, and
   `CallBatch` returns the `CallBatchResponse` together with a `*CallBatchError`.
-  A batch that only reads is not committed and has no `TxID`.
+  A batch that only reads is not committed and has no `TxID`. `QueryBatch`
+  fails the same way, since results after a failed request rest on a
+  simulation that went wrong.
 - **Timeouts are not failures.** A timeout (`IsTimeoutError`) means the
   batch may have committed. Never run it again, as a new batch or as
   separate calls, without reconciling against the ledger first. A gateway
@@ -97,30 +119,61 @@ default:
   [luthersystems/substrate#515](https://github.com/luthersystems/substrate/pull/515)
   also reports `ErrOutcomeUnknown` with the transaction ID
   (`OutcomeUnknownTxID`). An older gateway sends only the timeout.
-- **Shared options.** Configs apply to the whole batch, as for `Call`:
-  transient data from `WithTransientData` is shared by every request, and
-  every request runs against the same phylum version.
-- **Per-request transient data.** `CallBatchRequest.Transient` is seen only
-  by its own request: a transient read there finds the request's key first,
-  then the shared one, so two deposits can each carry their own `"secret"`.
-  This isolates the requests from each other. It does **not** hide the data
-  from endorsing peers: Fabric sends all of it to every endorser, as for
-  `Call`. Keys starting with `$batch/` are reserved and rejected (also in
-  `Call`), as is an empty per-request key; nothing is sent. Per-request
-  transient data needs substrate with luthersystems/substrate#521. A gateway
-  without #521 has no `CallBatch` at all (`ErrCallBatchNotSupported`). A
-  #521 gateway talking to an older chaincode refuses the batch with an
-  error and orders nothing.
+- **Per-request transient data.** Put a request's transient data in its
+  `CallBatchRequest.Configs`: `WithTransientData`, `WithTransientDataMap`,
+  or helpers built on them such as `private.WithTransientMXF`. The batch
+  sends each request's data with that request only, so two requests can
+  each carry their own `"mxf"` or `"secret"`. This gives **correct
+  per-request routing, not isolation from phylum code**: the phylum is
+  trusted, and Fabric sends the whole transient map to every endorser, as
+  for `Call`.
+- **Batch-level configs apply to the whole transaction.** Pass them to
+  `CallBatch` / `QueryBatch` itself. Their transient data may hold only the
+  transaction-wide keys `csprng_seed_private` (`private.WithSeed`),
+  `timestamp_override`, `traceparent` and `tracestate`. Any other key is
+  refused, with an error pointing to the request's `Configs`, and nothing is
+  sent.
+- **The seed is transaction-wide.** A batch sends one CSPRNG seed. If the
+  batch's own configs include `private.WithSeed()`, that seed is used.
+  Otherwise the seed bundled by the first request's
+  `private.WithTransientMXF` (or `private.WithSeed`) is promoted to the
+  batch and the rest are ignored; each is fresh and random, so any one is
+  as good as another. With no seed anywhere the batch is sent without one,
+  as a `Call` would be, and an MXF encode then fails the batch. A seed is
+  never sent per request, and a plain
+  `WithTransientData("csprng_seed_private", …)` in a request's `Configs` is
+  refused.
+- **What a request's `Configs` may set.** Allowed: transient data
+  (`WithTransientData`, `WithTransientDataMap`, `private.WithTransientMXF`,
+  `private.WithSeed`, whose seed is handled as above) and no-op configs.
+  Refused before anything is sent, naming the option: `WithParams` and `WithID` (use the request's
+  `Params` and `ID`), `WithEndpoint`, `WithHeader`, `WithAuthToken`,
+  `WithHTTPClient`, `WithLog`, `WithLogField`, `WithLogrusFields`,
+  `WithMSPFilter`, `WithTargetEndpoints`, `WithoutTargetEndpoints`,
+  `WithMinEndorsers`, `WithCreator`, `WithDependentTxID`,
+  `WithDependentBlock`, `WithPhylumVersion`, `WithDisableWritePolling`,
+  `WithTimestampGenerator`, `WithCCFetchURLProxy`,
+  `WithCCFetchURLDowngrade`, `WithResponse`, `WithResponseReceiver` and
+  `WithUnsafeDebug`. A request's transient keys must also be non-empty, must
+  not be one of the four transaction-wide keys, and must not start with
+  `$batch/`, which is reserved (also in `Call`).
 - **Requirements.** The gateway must include
-  [luthersystems/substrate#521](https://github.com/luthersystems/substrate/pull/521).
-  An older gateway answers "method not found", and `CallBatch` returns an
-  error matching `shiroclient.ErrCallBatchNotSupported` without running
-  anything. The mock client does not support batches yet (the substrate
-  plugin has no batch method) and returns the same error. `CallBatch` never
-  falls back to separate `Call`s, which would not be atomic.
-- **Compatibility.** `CallBatch` is a package function over the optional
-  `shiroclient.CallBatcher` interface, so the `ShiroClient` interface is
-  unchanged.
+  [luthersystems/substrate#521](https://github.com/luthersystems/substrate/pull/521),
+  which also carries the per-request transient routing. An older gateway
+  answers "method not found", and `CallBatch` returns an error matching
+  `shiroclient.ErrCallBatchNotSupported` (`QueryBatch`:
+  `shiroclient.ErrQueryBatchNotSupported`) without running anything.
+- **Mock mode.** The mock client runs batches through the substrate plugin,
+  which must implement `x/plugin.BatchSubstrate`. That needs a substratehcp
+  release with batch support; the SDK will bump `SUBSTRATE_VERSION` once it
+  ships. Until then the pinned plugin (v2.205.0) has no batch methods, and
+  the mock returns `ErrCallBatchNotSupported` / `ErrQueryBatchNotSupported`,
+  in private and shared-plugin (`mock.WithSharedPlugin`) mode alike.
+- **No fallback.** Neither function ever falls back to separate `Call`s,
+  which would not be atomic.
+- **Compatibility.** `CallBatch` and `QueryBatch` are package functions over
+  the optional `shiroclient.CallBatcher` and `shiroclient.QueryBatcher`
+  interfaces, so the `ShiroClient` interface is unchanged.
 
 ---
 

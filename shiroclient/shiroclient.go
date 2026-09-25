@@ -82,8 +82,9 @@ func OutcomeUnknownTxID(err error) (txID string, ok bool) {
 // parameters and an optional JSON-RPC id.
 type CallBatchRequest = types.CallBatchRequest
 
-// CallBatchResponse is the result of a CallBatch: one response per request, in
-// request order, and the batch's single transaction.
+// CallBatchResponse is the result of a CallBatch or QueryBatch: one response
+// per request, in request order, and the batch's single transaction (none for
+// a QueryBatch).
 type CallBatchResponse = types.CallBatchResponse
 
 // CallBatchError is the error CallBatch returns, together with the
@@ -99,7 +100,8 @@ type CallBatcher = types.CallBatcher
 // ErrCallBatchNotSupported matches, via errors.Is, a CallBatch that could not run
 // at all: the client does not implement CallBatcher, the gateway predates
 // luthersystems/substrate#521 ("method not found"), or the client is a mock
-// (the substrate plugin does not support batches yet).  Nothing was run.
+// whose substratehcp plugin does not implement plugin.BatchSubstrate (no
+// released substratehcp does yet).  Nothing was run.
 var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 
 // CallBatch runs several phylum methods as ONE transaction, all or nothing.
@@ -112,23 +114,33 @@ var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 // If any request fails, NOTHING is committed.  CallBatch then returns the
 // CallBatchResponse together with a *CallBatchError naming the failed request.  The
 // failed request's response carries its own error; every other request's
-// response carries a "batch aborted" error (see CallBatchAborted).
+// response carries a "batch aborted" error (see CallBatchAborted).  A request
+// whose method forces its transaction not to commit, such as private_decode,
+// fails the batch with CodeForcedNoCommit: run it with QueryBatch instead.
 //
-// The configs are those of Call, applied once to the whole batch.  Transient
-// data (WithTransientData) is shared by every request, and every request runs
-// against the same phylum version (WithPhylumVersion).  WithParams is
-// ignored: each request carries its own Params.
+// Transient data belongs to a request: build each request like a Call, with
+// its own transient data in CallBatchRequest.Configs (WithTransientData,
+// WithTransientDataMap, private.WithTransientMXF), and the batch sends it
+// with that request only.  This routes each request's data to the right
+// request; it does not hide it from phylum code, which is trusted, nor from
+// endorsing peers, which Fabric sends all of it, as with Call.  Only
+// transient data may be set per request; every other option is refused
+// before anything is sent (see CallBatchRequest.Configs).
 //
-// A request's own CallBatchRequest.Transient is seen only by that request:
-// a transient read inside it finds the request's key first, then the shared
-// one.  This isolates the requests from each other; it does NOT hide the
-// data from endorsing peers, which receive all of it, as with Call.  Keys
-// starting with "$batch/" are reserved (the gateway uses them to pack
-// per-request keys) and are rejected, in Call too; so is an empty
-// per-request key.  Per-request transient data needs substrate with
-// luthersystems/substrate#521.  A gateway without #521 has no CallBatch at
-// all (ErrCallBatchNotSupported); a #521 gateway talking to an older
-// chaincode refuses the batch with an error and orders nothing.
+// The configs passed to CallBatch itself apply to the whole transaction:
+// endpoint, headers, MSP filter, target endpoints, min endorsers, creator,
+// dependent txid or block, phylum version, write polling, timestamp
+// generator.  WithParams is ignored: each request carries its own Params.
+// Their transient data may hold only the transaction-wide keys
+// csprng_seed_private (private.WithSeed), timestamp_override, traceparent
+// and tracestate; any other key is refused and belongs in a request's
+// Configs.  A transaction has one CSPRNG seed: private.WithSeed here sets
+// it; otherwise the first request whose Configs carry one
+// (private.WithTransientMXF does) supplies it and the others are ignored;
+// with none, the batch is sent without a seed, as a Call would be.  Keys starting with "$batch/" are reserved (the
+// gateway uses them to pack per-request keys) and are rejected, in Call too;
+// so is an empty key.  Per-request transient data needs substrate with
+// luthersystems/substrate#521.
 //
 // A timeout (IsTimeoutError) means the batch MAY have committed: CallBatch
 // returns no CallBatchResponse and no CallBatchError, and the caller must
@@ -139,8 +151,9 @@ var ErrCallBatchNotSupported = types.ErrCallBatchNotSupported
 // timed-out batch as a new batch, or as separate Calls, without reconciling.
 //
 // CallBatch needs a shiroclient gateway that includes
-// luthersystems/substrate#521.  With an older gateway, a mock client, or a
-// client that does not implement CallBatcher, it returns an error matching
+// luthersystems/substrate#521; a mock client needs a substratehcp plugin
+// that implements plugin.BatchSubstrate.  With an older gateway or plugin,
+// or a client that does not implement CallBatcher, it returns an error matching
 // ErrCallBatchNotSupported and runs nothing; it never falls back to separate
 // Calls, which would not be atomic.
 func CallBatch(ctx context.Context, client ShiroClient, requests []CallBatchRequest, configs ...Config) (*CallBatchResponse, error) {
@@ -151,10 +164,60 @@ func CallBatch(ctx context.Context, client ShiroClient, requests []CallBatchRequ
 	return bc.CallBatch(ctx, requests, configs...)
 }
 
+// QueryBatcher is implemented by clients that support QueryBatch; NewRPC and
+// NewMock clients do.  It is not part of ShiroClient.
+type QueryBatcher = types.QueryBatcher
+
+// ErrQueryBatchNotSupported matches, via errors.Is, a QueryBatch that could
+// not run at all: the client does not implement QueryBatcher, the gateway
+// has no QueryBatch ("method not found"), or the client is a mock whose
+// substratehcp plugin does not implement plugin.BatchSubstrate.  Nothing was
+// run.
+var ErrQueryBatchNotSupported = types.ErrQueryBatchNotSupported
+
+// QueryBatch simulates several phylum methods as ONE transaction, all or
+// nothing, that is never committed to the ledger.
+//
+// It is CallBatch without the commit.  Requests always run in the order
+// given, in one simulation, and each sees the simulated writes of the ones before it; the
+// writes are then discarded.  Every request must succeed: the first failure
+// stops the batch, because the later results would rest on a simulation
+// that went wrong.  QueryBatch then returns the CallBatchResponse together
+// with a *CallBatchError naming the failed request, whose response carries
+// its own error; every other request's response carries a "batch aborted"
+// error (see CallBatchAborted).  On success every response holds its
+// request's result; Committed is false and TxID is empty.
+//
+// Unlike CallBatch, a request whose method forces its transaction not to
+// commit, such as private_decode, may run in a QueryBatch.
+//
+// Requests and configs are those of CallBatch, with the same rules: a
+// request's transient data goes in its CallBatchRequest.Configs, and the
+// batch's own configs may set only the transaction-wide transient keys.
+// QueryBatch needs a shiroclient gateway that supports it, or for a mock
+// client a substratehcp plugin that implements plugin.BatchSubstrate; with
+// an older gateway or plugin, or a client that does not implement
+// QueryBatcher,
+// it returns an error matching ErrQueryBatchNotSupported and runs nothing.
+func QueryBatch(ctx context.Context, client ShiroClient, requests []CallBatchRequest, configs ...Config) (*CallBatchResponse, error) {
+	qb, ok := client.(QueryBatcher)
+	if !ok {
+		return nil, fmt.Errorf("%w: %T does not implement QueryBatcher", ErrQueryBatchNotSupported, client)
+	}
+	return qb.QueryBatch(ctx, requests, configs...)
+}
+
 // CodeBatchAborted is the JSON-RPC error code substrate reserves for a request
 // of a batch that was not committed because another request failed. A phylum
 // error never carries it.
 const CodeBatchAborted = types.CodeBatchAborted
+
+// CodeForcedNoCommit is the JSON-RPC error code substrate gives, in a
+// CallBatch, to a request whose method forces its transaction not to commit
+// (private_decode, for example).  It fails the batch like any other request
+// error: it is the CallBatchError's Err, and every other request gets
+// CodeBatchAborted.  Run such requests with QueryBatch.
+const CodeForcedNoCommit = types.CodeForcedNoCommit
 
 // CallBatchAborted reports whether err is the error given to a request of a
 // batch that did not fail itself but was not committed because another

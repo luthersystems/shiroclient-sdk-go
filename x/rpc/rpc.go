@@ -25,6 +25,10 @@ const (
 	// several phylum methods as one all-or-nothing transaction.  Gateways
 	// older than luthersystems/substrate#521 answer "method not found".
 	MethodCallBatch = "CallBatch"
+	// MethodQueryBatch is used to call the QueryBatch method which simulates
+	// several phylum methods as one transaction and never commits.  Gateways
+	// without it answer "method not found".
+	MethodQueryBatch = "QueryBatch"
 )
 
 const (
