@@ -128,15 +128,33 @@ func TestQueryBatchClientWithoutSupport(t *testing.T) {
 	require.True(t, errors.Is(err, shiroclient.ErrQueryBatchNotSupported), "got %v", err)
 }
 
-func TestQueryBatchMockNotSupported(t *testing.T) {
+// TestQueryBatchMock runs a QueryBatch against the real mock plugin: its
+// writes are simulated but never committed.
+func TestQueryBatchMock(t *testing.T) {
 	client, err := shiroclient.NewMock(nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	initClient(t, client, testPhylum)
+	ctx := context.Background()
+
 	_, ok := client.(shiroclient.QueryBatcher)
 	require.True(t, ok, "the mock client implements QueryBatcher")
-	_, err = shiroclient.QueryBatch(context.Background(), client,
-		[]shiroclient.CallBatchRequest{{Method: "healthcheck"}})
-	require.True(t, errors.Is(err, shiroclient.ErrQueryBatchNotSupported), "got %v", err)
+
+	before := readTestKey(t, client)
+	resp, err := shiroclient.QueryBatch(ctx, client, []shiroclient.CallBatchRequest{
+		{Method: "write", Params: []interface{}{"q"}},
+		{Method: "read"},
+		{Method: "no-commit"},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Responses, 3)
+	for i, r := range resp.Responses {
+		require.Nil(t, r.Error(), "response %d", i)
+	}
+	assert.Equal(t, `"q"`, string(resp.Responses[1].ResultJSON()), "reads see earlier writes in the batch")
+	assert.False(t, resp.Committed)
+	assert.Empty(t, resp.TxID)
+	assert.Equal(t, before, readTestKey(t, client), "a QueryBatch never commits")
 }
 
 func TestQueryBatchSameConfigRules(t *testing.T) {

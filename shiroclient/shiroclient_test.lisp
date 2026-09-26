@@ -22,3 +22,13 @@
 
 (defendpoint "read" ()
   (route-success (statedb:get "testkey")))
+
+; writes, then fails: the write must not commit.
+(defendpoint "write-then-fail" (val)
+  (statedb:put "testkey" val)
+  (route-failure "boom"))
+
+; forces its transaction not to commit.
+(defendpoint "no-commit" ()
+  (cc:force-no-commit-tx)
+  (route-success ()))

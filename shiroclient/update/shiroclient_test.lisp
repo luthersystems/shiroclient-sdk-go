@@ -5,4 +5,4 @@
   (route-success ()))
 
 (defendpoint "read" ()
-  (route-success router:phylum-version-loaded))
+  (route-success (router:loaded-phylum-version)))
