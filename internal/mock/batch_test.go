@@ -2,6 +2,7 @@ package mock
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"testing"
@@ -149,9 +150,10 @@ func TestMockBatchValidatesBeforeSending(t *testing.T) {
 	assert.Nil(t, fake.gotReqs, "nothing reaches the plugin")
 }
 
-// TestMockBatchReleasedPlugin pins that the released substratehcp, which has
-// no batch methods, still yields the not-supported errors, with a private
-// and a shared plugin process alike.
+// TestMockBatchReleasedPlugin pins that the released substratehcp
+// (v2.240.0+, which implements plugin.BatchSubstrate) runs batches, with a
+// private and a shared plugin process alike: CallBatch commits, a failing
+// element aborts the whole batch, and QueryBatch never commits.
 func TestMockBatchReleasedPlugin(t *testing.T) {
 	requirePlugin(t)
 	t.Cleanup(func() { _ = ShutdownSharedPlugins() })
@@ -160,12 +162,52 @@ func TestMockBatchReleasedPlugin(t *testing.T) {
 		"shared":  {mock.WithSharedPlugin()},
 	} {
 		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
 			c := newTestMock(t, opts...)
 			t.Cleanup(func() { _ = c.Close() })
-			_, err := c.CallBatch(context.Background(), []types.CallBatchRequest{{Method: "healthcheck"}})
-			assert.True(t, errors.Is(err, types.ErrCallBatchNotSupported), "got %v", err)
-			_, err = c.QueryBatch(context.Background(), []types.CallBatchRequest{{Method: "healthcheck"}})
-			assert.True(t, errors.Is(err, types.ErrQueryBatchNotSupported), "got %v", err)
+			require.NoError(t, c.Init(ctx, base64.StdEncoding.EncodeToString(sharedTestPhylum)))
+			read := func() string {
+				r, err := c.Call(ctx, "read")
+				require.NoError(t, err)
+				require.Nil(t, r.Error())
+				return string(r.ResultJSON())
+			}
+
+			resp, err := c.CallBatch(ctx, []types.CallBatchRequest{
+				{Method: "write", Params: []interface{}{"x"}},
+				{Method: "healthcheck"},
+			})
+			require.NoError(t, err)
+			assert.True(t, resp.Committed)
+			assert.NotEmpty(t, resp.TxID)
+			assert.Equal(t, `"x"`, read())
+
+			resp, err = c.CallBatch(ctx, []types.CallBatchRequest{
+				{Method: "write", Params: []interface{}{"y"}},
+				{Method: "write-then-fail", Params: []interface{}{"z"}},
+			})
+			var batchErr *types.CallBatchError
+			require.True(t, errors.As(err, &batchErr), "got %v", err)
+			assert.Equal(t, 1, batchErr.Index)
+			require.NotNil(t, resp)
+			assert.False(t, resp.Committed)
+			assert.Equal(t, 1, resp.FailedIndex())
+			assert.Equal(t, types.CodeBatchAborted, resp.Responses[0].Error().Code())
+			assert.Equal(t, `"x"`, read(), "nothing committed")
+
+			resp, err = c.CallBatch(ctx, []types.CallBatchRequest{{Method: "no-commit"}})
+			require.True(t, errors.As(err, &batchErr), "got %v", err)
+			assert.Equal(t, types.CodeForcedNoCommit, batchErr.Err.Code())
+			assert.False(t, resp.Committed)
+
+			resp, err = c.QueryBatch(ctx, []types.CallBatchRequest{
+				{Method: "write", Params: []interface{}{"q"}},
+				{Method: "read"},
+			})
+			require.NoError(t, err)
+			assert.False(t, resp.Committed)
+			assert.Equal(t, `"q"`, string(resp.Responses[1].ResultJSON()))
+			assert.Equal(t, `"x"`, read(), "a QueryBatch never commits")
 		})
 	}
 }

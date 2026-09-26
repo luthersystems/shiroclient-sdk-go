@@ -277,17 +277,88 @@ func TestCallBatchClientWithoutSupport(t *testing.T) {
 	require.True(t, errors.Is(err, shiroclient.ErrCallBatchNotSupported), "got %v", err)
 }
 
-func TestCallBatchMockNotSupported(t *testing.T) {
+func readTestKey(t *testing.T, client shiroclient.ShiroClient) string {
+	t.Helper()
+	resp, err := client.Call(context.Background(), "read")
+	require.NoError(t, err)
+	require.Nil(t, resp.Error())
+	return string(resp.ResultJSON())
+}
+
+// TestCallBatchMock runs batches against the real mock plugin, which
+// implements x/plugin.BatchSubstrate from substrate v2.240.0.
+func TestCallBatchMock(t *testing.T) {
 	client, err := shiroclient.NewMock(nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	initClient(t, client, testPhylum)
+	ctx := context.Background()
 
 	_, ok := client.(shiroclient.CallBatcher)
 	require.True(t, ok, "the mock client implements CallBatcher")
-	_, err = shiroclient.CallBatch(context.Background(), client,
-		[]shiroclient.CallBatchRequest{{Method: "healthcheck"}})
-	require.True(t, errors.Is(err, shiroclient.ErrCallBatchNotSupported), "got %v", err)
+
+	t.Run("commits as one tx", func(t *testing.T) {
+		resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.CallBatchRequest{
+			{Method: "write", Params: []interface{}{"a"}},
+			{Method: "write", Params: []interface{}{"b"}},
+			{Method: "healthcheck"},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.Responses, 3)
+		for i, r := range resp.Responses {
+			require.Nil(t, r.Error(), "response %d", i)
+		}
+		assert.True(t, resp.Committed)
+		assert.NotEmpty(t, resp.TxID)
+		assert.Equal(t, -1, resp.FailedIndex())
+		assert.Equal(t, `"b"`, readTestKey(t, client), "later writes in the one tx win")
+	})
+
+	t.Run("failing element aborts the batch", func(t *testing.T) {
+		resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.CallBatchRequest{
+			{Method: "write", Params: []interface{}{"c"}},
+			{Method: "write-then-fail", Params: []interface{}{"d"}},
+			{Method: "write", Params: []interface{}{"e"}},
+		})
+		require.Error(t, err)
+		var batchErr *shiroclient.CallBatchError
+		require.True(t, errors.As(err, &batchErr), "got %v", err)
+		assert.Equal(t, 1, batchErr.Index)
+		require.NotNil(t, resp)
+		assert.False(t, resp.Committed)
+		assert.Empty(t, resp.TxID)
+		assert.Equal(t, 1, resp.FailedIndex())
+		require.Len(t, resp.Responses, 3)
+		own := resp.Responses[1].Error()
+		require.NotNil(t, own)
+		assert.NotEqual(t, shiroclient.CodeBatchAborted, own.Code())
+		assert.Contains(t, string(own.DataJSON()), "boom")
+		for _, i := range []int{0, 2} {
+			e := resp.Responses[i].Error()
+			require.NotNil(t, e, "response %d", i)
+			assert.Equal(t, shiroclient.CodeBatchAborted, e.Code(), "response %d", i)
+			_, aborted := shiroclient.CallBatchAborted(e)
+			assert.True(t, aborted, "response %d", i)
+		}
+		assert.Equal(t, `"b"`, readTestKey(t, client), "nothing committed")
+	})
+
+	t.Run("forced no-commit fails the batch", func(t *testing.T) {
+		resp, err := shiroclient.CallBatch(ctx, client, []shiroclient.CallBatchRequest{
+			{Method: "write", Params: []interface{}{"f"}},
+			{Method: "no-commit"},
+		})
+		require.Error(t, err)
+		var batchErr *shiroclient.CallBatchError
+		require.True(t, errors.As(err, &batchErr), "got %v", err)
+		assert.Equal(t, 1, batchErr.Index)
+		require.NotNil(t, batchErr.Err)
+		assert.Equal(t, shiroclient.CodeForcedNoCommit, batchErr.Err.Code())
+		require.NotNil(t, resp)
+		assert.False(t, resp.Committed)
+		assert.Equal(t, shiroclient.CodeBatchAborted, resp.Responses[0].Error().Code())
+		assert.Equal(t, `"b"`, readTestKey(t, client), "nothing committed")
+	})
 }
 
 // batchTimeoutNoOutcome is how the #521 gateway, before it is stacked on

@@ -164,11 +164,12 @@ default:
   `shiroclient.ErrCallBatchNotSupported` (`QueryBatch`:
   `shiroclient.ErrQueryBatchNotSupported`) without running anything.
 - **Mock mode.** The mock client runs batches through the substrate plugin,
-  which must implement `x/plugin.BatchSubstrate`. That needs a substratehcp
-  release with batch support; the SDK will bump `SUBSTRATE_VERSION` once it
-  ships. Until then the pinned plugin (v2.205.0) has no batch methods, and
-  the mock returns `ErrCallBatchNotSupported` / `ErrQueryBatchNotSupported`,
-  in private and shared-plugin (`mock.WithSharedPlugin`) mode alike.
+  which must implement `x/plugin.BatchSubstrate`. Substrate plugin v2.240.0
+  and later do (luthersystems/substrate#526), and the SDK pins v2.240.0, so
+  `CallBatch` and `QueryBatch` work in mock mode, in private and
+  shared-plugin (`mock.WithSharedPlugin`) mode alike. An older plugin has no
+  batch methods, and the mock returns `ErrCallBatchNotSupported` /
+  `ErrQueryBatchNotSupported`.
 - **No fallback.** Neither function ever falls back to separate `Call`s,
   which would not be atomic.
 - **Compatibility.** `CallBatch` and `QueryBatch` are package functions over
