@@ -40,7 +40,7 @@ golangci-lint run ./... && make test
 - CI runs on `ubuntu-latest` with Go 1.23. Ensure your local Go version matches.
 - There is no separate format check; formatting issues are caught by golangci-lint.
 - The plugin download (`make plugin`) uses `scripts/obtain-plugin.sh` and requires network access.
-- Plugin version is pinned in `common.config.mk` (`SUBSTRATE_VERSION=v2.205.0`).
+- Plugin version is pinned in `common.config.mk` (`SUBSTRATE_VERSION=v2.240.0`).
 
 ## Checklist
 
