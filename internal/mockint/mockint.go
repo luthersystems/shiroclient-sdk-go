@@ -33,7 +33,14 @@ type Config struct {
 	// SharedIdleTimeout is how long a shared plugin process stays alive
 	// after its last mock closes. Zero stops it immediately.
 	SharedIdleTimeout time.Duration
+	// Creator is the fake transaction creator MSP ID set on the mock
+	// ledger when it is created. Empty leaves the creator unset.
+	Creator string
 }
+
+// DefaultCreator is the default Creator: the fake transaction creator MSP
+// ID a new mock sets, so a phylum's MSP checks (cc:creator) run in memory.
+const DefaultCreator = "Org1MSP"
 
 // DefaultSharedIdleTimeout is the default SharedIdleTimeout.
 const DefaultSharedIdleTimeout = 10 * time.Second

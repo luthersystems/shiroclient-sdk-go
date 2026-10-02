@@ -32,3 +32,7 @@
 (defendpoint "no-commit" ()
   (cc:force-no-commit-tx)
   (route-success ()))
+
+; returns the transaction creator's MSP ID (raises when none is set).
+(defendpoint "creator" ()
+  (route-success (cc:creator)))

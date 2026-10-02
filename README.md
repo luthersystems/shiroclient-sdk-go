@@ -43,6 +43,13 @@ err = client.Init(ctx, shiroclient.EncodePhylumBytes(testPhylum))
 
 You can restore mock clients from snapshots and bootstrap them with config.
 
+A mock sets a fake transaction creator MSP, `Org1MSP` by default
+(`mock.DefaultCreator`), so a phylum's MSP checks (`cc:creator`, `valid-msp?`)
+run in memory as they do on a network. `mock.WithCreator("Org2MSP")` picks
+another MSP, and `mock.WithCreator("")` leaves the creator unset, so a creator
+read fails (to test that a phylum fails closed). The per-call
+`shiroclient.WithCreator` still replaces it.
+
 ### Tracing in Mock Mode
 
 The substrate plugin supports OTLP trace export. Set the `SUBSTRATE_OTLP_ENDPOINT` environment variable to enable end-to-end distributed tracing when running with the mock client:

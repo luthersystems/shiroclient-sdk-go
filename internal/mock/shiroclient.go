@@ -264,6 +264,7 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 	config := &mockint.Config{
 		LogWriter:         os.Stdout,
 		SharedIdleTimeout: mockint.DefaultSharedIdleTimeout,
+		Creator:           mockint.DefaultCreator,
 	}
 	for _, opt := range opts {
 		opt(config)
@@ -326,6 +327,15 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 	if err != nil {
 		_ = release()
 		return nil, fmt.Errorf("failed to create mock client: %w", err)
+	}
+	if config.Creator != "" {
+		// The creator is held per mock (per tag), so mocks sharing a plugin
+		// process keep their own.
+		if err := conn.GetSubstrate().SetCreatorWithAttributesMock(tag, config.Creator, nil); err != nil {
+			_ = conn.GetSubstrate().CloseMock(tag)
+			_ = release()
+			return nil, fmt.Errorf("failed to set mock creator: %w", err)
+		}
 	}
 	return &mockShiroClient{
 		baseConfig:  clientConfigs,

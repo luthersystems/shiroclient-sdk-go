@@ -20,6 +20,10 @@ const (
 	Error
 )
 
+// DefaultCreator is the fake transaction creator MSP ID a mock client sets
+// unless WithCreator says otherwise.
+const DefaultCreator = mockint.DefaultCreator
+
 // Option is a mock client configuration function
 type Option func(*mockint.Config)
 
@@ -113,5 +117,22 @@ func WithSharedPluginIdleTimeout(d time.Duration) Option {
 			d = 0
 		}
 		config.SharedIdleTimeout = d
+	}
+}
+
+// WithCreator sets the fake transaction creator MSP ID that the mock sets on
+// its ledger when it is created, so a phylum's MSP checks (cc:creator, and
+// the connector's valid-msp? checks built on it) run in memory as they do on
+// a network. The default is DefaultCreator ("Org1MSP").
+//
+// An empty msp leaves the creator unset: cc:creator then raises, which tests
+// that a phylum fails closed without a creator.
+//
+// The per-call shiroclient.WithCreator config, and
+// MockShiroClient.SetCreatorWithAttributes, still replace the creator; as
+// before, a creator set that way stays set for later calls on the mock.
+func WithCreator(msp string) Option {
+	return func(config *mockint.Config) {
+		config.Creator = msp
 	}
 }
