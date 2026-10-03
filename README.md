@@ -48,7 +48,10 @@ A mock sets a fake transaction creator MSP, `Org1MSP` by default
 run in memory as they do on a network. `mock.WithCreator("Org2MSP")` picks
 another MSP, and `mock.WithCreator("")` leaves the creator unset, so a creator
 read fails (to test that a phylum fails closed). The per-call
-`shiroclient.WithCreator` still replaces it.
+`shiroclient.WithCreator` still replaces it and, as before, stays set for later
+calls on that mock and clears any attributes set with
+`SetCreatorWithAttributes`. A snapshot does not carry the creator: a mock
+restored with `mock.WithSnapshotReader` sets its own option's creator.
 
 ### Tracing in Mock Mode
 

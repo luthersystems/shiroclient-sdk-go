@@ -1,6 +1,7 @@
 package shiroclient_test
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -54,6 +55,39 @@ func TestMockWithoutCreatorFailsClosed(t *testing.T) {
 	client := newCreatorMock(t, mock.WithCreator(""))
 	_, err := callCreator(t, client)
 	require.Error(t, err)
+
+	// The failure came from the missing creator: setting one fixes the call.
+	require.NoError(t, client.SetCreatorWithAttributes("Org2MSP", nil))
+	msp, err := callCreator(t, client)
+	require.NoError(t, err)
+	require.Equal(t, "Org2MSP", msp)
+}
+
+// A snapshot does not carry the creator: a mock restored from one sets its
+// own option's creator (DefaultCreator unless WithCreator says otherwise).
+func TestMockCreatorAfterSnapshotRestore(t *testing.T) {
+	src := newCreatorMock(t, mock.WithCreator("Org3MSP"))
+	var snapshot bytes.Buffer
+	require.NoError(t, src.Snapshot(&snapshot))
+
+	for _, tc := range []struct {
+		name string
+		opts []mock.Option
+		want string
+	}{
+		{"default", nil, mock.DefaultCreator},
+		{"with creator", []mock.Option{mock.WithCreator("Org2MSP")}, "Org2MSP"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := append([]mock.Option{mock.WithSnapshotReader(bytes.NewReader(snapshot.Bytes()))}, tc.opts...)
+			restored, err := shiroclient.NewMock(nil, opts...)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, restored.Close()) })
+			msp, err := callCreator(t, restored)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, msp)
+		})
+	}
 }
 
 // The per-call config still replaces the default creator.

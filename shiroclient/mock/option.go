@@ -130,7 +130,14 @@ func WithSharedPluginIdleTimeout(d time.Duration) Option {
 //
 // The per-call shiroclient.WithCreator config, and
 // MockShiroClient.SetCreatorWithAttributes, still replace the creator; as
-// before, a creator set that way stays set for later calls on the mock.
+// before, a creator set that way stays set for later calls on the mock, and
+// the per-call config clears any creator attributes. A per-call
+// shiroclient.WithCreator("") is ignored, so after creation the only way to
+// unset the creator is SetCreatorWithAttributes("", nil).
+//
+// A snapshot does not carry the creator: a mock restored with
+// WithSnapshotReader sets the creator from its own options (DefaultCreator
+// unless WithCreator says otherwise).
 func WithCreator(msp string) Option {
 	return func(config *mockint.Config) {
 		config.Creator = msp
