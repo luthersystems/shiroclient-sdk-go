@@ -68,14 +68,14 @@ type DSID string
 // TransformHeader is a header for a message transformation.
 // This is exported for json serialization.
 type TransformHeader struct {
-	// ProfilePaths are elpspaths that compose a data subject profile.
-	ProfilePaths []string `json:"profile_paths"`
-	// PrivatePaths are elpspaths that select private data.
-	PrivatePaths []string `json:"private_paths"`
 	// Encryptor selects the encryption algorithm.
 	Encryptor Encryptor `json:"encryptor"`
 	// Compressor selects the compression algorithm.
 	Compressor Compressor `json:"compressor"`
+	// ProfilePaths are elpspaths that compose a data subject profile.
+	ProfilePaths []string `json:"profile_paths"`
+	// PrivatePaths are elpspaths that select private data.
+	PrivatePaths []string `json:"private_paths"`
 }
 
 // TransformBody is the body portion of a transformation. This is populated
@@ -91,16 +91,16 @@ type TransformBody struct {
 // Transform is a message transformation. It encapsulates both transformed
 // messages (body), as well as settings to perform a transformation (header).
 type Transform struct {
-	// ContextPath represents an elpspath within the message where the
-	// transformation will be applied. All transformation paths are relative
-	// to this context.
-	ContextPath string `json:"context_path"`
 	// Header represents a transformation header. It is a description of
 	// the transformation used for encoding and decoding.
 	Header *TransformHeader `json:"header"`
 	// Body includes an encoded message, where the encoding used the settings
 	// defined in the Header.
 	Body *TransformBody `json:"body"`
+	// ContextPath represents an elpspath within the message where the
+	// transformation will be applied. All transformation paths are relative
+	// to this context.
+	ContextPath string `json:"context_path"`
 }
 
 // EncodedMessage is a message that has undergone encoding.
@@ -227,33 +227,40 @@ func WithTransientMXF(req *EncodeRequest) ([]shiroclient.Config, error) {
 	return configs, nil
 }
 
-func encodeHelper(ctx context.Context, client shiroclient.ShiroClient, message interface{}, transforms []*Transform, configs ...shiroclient.Config) (*EncodedResponse, []shiroclient.Config, error) {
-	if message == nil {
-		return nil, nil, nil
+// encodeResult is what encodeHelper produces.
+type encodeResult struct {
+	// enc is the encoded message, or nil when there was no message.
+	enc *EncodedResponse
+	// configs pass enc (or, when encoding is skipped, the request to
+	// encode it) to a following call.
+	configs []shiroclient.Config
+}
+
+// encodeHelper encodes req.Message using req.Transforms.
+func encodeHelper(ctx context.Context, client shiroclient.ShiroClient, req *EncodeRequest, configs ...shiroclient.Config) (encodeResult, error) {
+	if req.Message == nil {
+		return encodeResult{}, nil
 	}
 	var newConfigs []shiroclient.Config
-	if len(transforms) == 0 {
+	if len(req.Transforms) == 0 {
 		// fast path, nothing to do.
-		rawBytes, err := json.Marshal(message)
+		rawBytes, err := json.Marshal(req.Message)
 		if err != nil {
-			return nil, nil, err
+			return encodeResult{}, err
 		}
 		encResp := &EncodedResponse{}
 		err = json.Unmarshal(rawBytes, encResp)
 		if err != nil {
-			return nil, nil, err
+			return encodeResult{}, err
 		}
 
 		newConfigs = append(newConfigs, withParam(encResp))
-		return encResp, newConfigs, nil
+		return encodeResult{enc: encResp, configs: newConfigs}, nil
 	}
 
-	transientConfigs, err := WithTransientMXF(&EncodeRequest{
-		Message:    message,
-		Transforms: transforms,
-	})
+	transientConfigs, err := WithTransientMXF(req)
 	if err != nil {
-		return nil, nil, err
+		return encodeResult{}, err
 	}
 
 	enc := &EncodedResponse{}
@@ -268,38 +275,38 @@ func encodeHelper(ctx context.Context, client shiroclient.ShiroClient, message i
 
 		resp, err := client.Call(ctx, ShiroEndpointEncode, configs...)
 		if err != nil {
-			return nil, nil, err
+			return encodeResult{}, err
 		}
 
 		if resp.Error() != nil {
-			return nil, nil, errors.New(resp.Error().Message())
+			return encodeResult{}, errors.New(resp.Error().Message())
 		}
 		err = resp.UnmarshalTo(enc)
 		if err != nil {
-			return nil, nil, err
+			return encodeResult{}, err
 		}
 
 		newConfigs = append(newConfigs, shiroclient.WithDependentTxID(resp.TransactionID()))
 		newConfigs = append(newConfigs, withParam(enc))
 	}
 
-	return enc, newConfigs, nil
+	return encodeResult{enc: enc, configs: newConfigs}, nil
 }
 
 // Encode encodes a sensitive "message" using "transforms".
 // If there no transforms, then encode simply returns a thin wrapper
 // over the encoded message bytes.
-func Encode(ctx context.Context, client shiroclient.ShiroClient, message interface{}, transforms []*Transform, configs ...shiroclient.Config) (*EncodedResponse, error) {
-	enc, _, err := encodeHelper(ctx, client, message, transforms, configs...)
+func Encode(ctx context.Context, client shiroclient.ShiroClient, message interface{}, transforms []*Transform, configs ...shiroclient.Config) (*EncodedResponse, error) { //nolint:revive // public API: changing the signature breaks callers.
+	res, err := encodeHelper(ctx, client, &EncodeRequest{Message: message, Transforms: transforms}, configs...)
 	if err != nil {
 		return nil, err
 	}
-	return enc, nil
+	return res.enc, nil
 }
 
 // Decode decodes a message that was encoded with transforms. If there are
 // no transforms, then decode unmarshals the raw message bytes into "decoded".
-func Decode(ctx context.Context, client shiroclient.ShiroClient, encoded *EncodedResponse, decoded interface{}, configs ...shiroclient.Config) error {
+func Decode(ctx context.Context, client shiroclient.ShiroClient, encoded *EncodedResponse, decoded interface{}, configs ...shiroclient.Config) error { //nolint:revive // public API: changing the signature breaks callers.
 	if encoded == nil {
 		return errors.New("nil encoded message")
 	}
@@ -452,11 +459,11 @@ var skipEncodeRequest = &EncodedResponse{
 // argument!
 func WrapCall(client shiroclient.ShiroClient, method string, encTransforms ...*Transform) CallFunc {
 	return func(ctx context.Context, message interface{}, output interface{}, configs ...shiroclient.Config) (*CallResult, error) {
-		_, newConfigs, err := encodeHelper(ctx, client, message, encTransforms, configs...)
+		encoded, err := encodeHelper(ctx, client, &EncodeRequest{Message: message, Transforms: encTransforms}, configs...)
 		if err != nil {
 			return nil, fmt.Errorf("wrap encode error: %w", err)
 		}
-		callConfigs := append(configs, newConfigs...)
+		callConfigs := append(configs, encoded.configs...)
 		resp, err := client.Call(ctx, method, callConfigs...)
 		if err != nil {
 			return nil, fmt.Errorf("wrap call error: %w", err)

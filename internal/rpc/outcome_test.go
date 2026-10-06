@@ -72,12 +72,12 @@ func TestShiroClientOutcome(t *testing.T) {
 					if !ok {
 						message = "shiroclient error with no message"
 					}
-					assert.EqualError(t, err, message)
+					require.EqualError(t, err, message)
 					assert.Equal(t, tc.code == 1 && ok, IsTimeoutError(err))
 					if tc.unknown {
-						assert.NotNil(t, errors.Unwrap(err), "outcome-unknown cause must be preserved")
+						require.Error(t, errors.Unwrap(err), "outcome-unknown cause must be preserved")
 					} else {
-						assert.Nil(t, errors.Unwrap(err))
+						require.NoError(t, errors.Unwrap(err))
 					}
 					wrapped := fmt.Errorf("wrapped: %w", err)
 					assert.Equal(t, IsTimeoutError(err), IsTimeoutError(wrapped))
@@ -104,8 +104,8 @@ func TestOutcomeUnknownCause(t *testing.T) {
 		data: map[string]interface{}{"outcome": "unknown", "tx_id": "tx-123"},
 	}
 	err := res.getShiroClientError()
-	assert.EqualError(t, err, "transaction timeout")
+	require.EqualError(t, err, "transaction timeout")
 	assert.True(t, IsTimeoutError(err))
-	require.NotNil(t, errors.Unwrap(err), "outcome-unknown cause must be preserved")
+	require.Error(t, errors.Unwrap(err), "outcome-unknown cause must be preserved")
 	assert.Contains(t, errors.Unwrap(err).Error(), "tx-123")
 }

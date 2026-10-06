@@ -20,19 +20,19 @@ type LogLevel int
 
 // Config is the internal configuration for the mock client
 type Config struct {
-	PluginPath     string
 	LogWriter      io.Writer
-	LogLevel       LogLevel
 	SnapshotReader io.Reader
+	PluginPath     string
+	LogLevel       LogLevel
 	// PreheatTimeout overrides the substrate phylum preheat/init timeout. A
 	// non-positive value leaves the substrate default in effect.
 	PreheatTimeout time.Duration
-	// SharedPlugin hosts the mock in a plugin process shared with other
-	// mocks that use the same plugin path, log level and log writer.
-	SharedPlugin bool
 	// SharedIdleTimeout is how long a shared plugin process stays alive
 	// after its last mock closes. Zero stops it immediately.
 	SharedIdleTimeout time.Duration
+	// SharedPlugin hosts the mock in a plugin process shared with other
+	// mocks that use the same plugin path, log level and log writer.
+	SharedPlugin bool
 }
 
 // DefaultSharedIdleTimeout is the default SharedIdleTimeout.

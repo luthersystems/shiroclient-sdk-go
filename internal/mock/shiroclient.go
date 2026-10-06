@@ -59,17 +59,17 @@ type MockShiroClient interface {
 }
 
 type mockShiroClient struct {
-	baseConfig []types.Config
-	conn       *plugin.SubstrateConnection
 	// substrate is conn's Substrate (a fake in tests).
 	substrate plugin.Substrate
+	closeErr  error
+	conn      *plugin.SubstrateConnection
 	// release gives back the plugin connection: it kills a private
 	// process, or drops a reference to a shared one.
 	release     func() error
 	tag         string
 	shiroPhylum string
+	baseConfig  []types.Config
 	closeOnce   sync.Once
-	closeErr    error
 }
 
 // flatten is the single choke point for every RPC-bound method (Init, Call,
@@ -137,7 +137,7 @@ func (c *mockShiroClient) concrete(ctx context.Context, opt *types.RequestOption
 
 // Seed implements the ShiroClient interface.
 func (c *mockShiroClient) Seed(_ context.Context, version string, configs ...types.Config) error {
-	return fmt.Errorf("Seed(...) is not supported")
+	return errors.New("Seed(...) is not supported")
 }
 
 // ShiroPhylum implements the ShiroClient interface.
@@ -160,7 +160,7 @@ func (c *mockShiroClient) Call(ctx context.Context, method string, configs ...ty
 	if err != nil {
 		return nil, err
 	}
-	if err := types.CheckTransientKeys(cro.Transient); err != nil {
+	if err = types.CheckTransientKeys(cro.Transient); err != nil {
 		return nil, fmt.Errorf("ShiroClient.Call: %w", err)
 	}
 
@@ -395,14 +395,15 @@ func (c *mockShiroClient) runBatch(ctx context.Context, query bool, requests []t
 	res, err := run(c.tag, args, cro)
 	if err != nil {
 		if errors.Is(err, plugin.ErrBatchNotSupported) {
-			return nil, fmt.Errorf("%w: the mock substrate plugin needs a substratehcp release that implements plugin.BatchSubstrate: %v", unsupported, err)
+			return nil, fmt.Errorf("%w: the mock substrate plugin needs a substratehcp release that implements plugin.BatchSubstrate: %w", unsupported, err)
 		}
 		return nil, err
 	}
-	br, failed, err := batchResponse(name, res, len(requests))
+	br, err := batchResponse(name, res, len(requests))
 	if err != nil {
 		return nil, err
 	}
+	failed := batchFailedIndex(res, br)
 	switch {
 	case query && br.Committed:
 		return nil, fmt.Errorf("%s: plugin reported the batch committed; a QueryBatch never commits", name)
@@ -423,11 +424,10 @@ func (c *mockShiroClient) runBatch(ctx context.Context, query bool, requests []t
 	return br, nil
 }
 
-// batchResponse converts the plugin's answer, returning the failed request's
-// index or -1.
-func batchResponse(name string, res *plugin.BatchResponse, n int) (*types.CallBatchResponse, int, error) {
+// batchResponse converts the plugin's answer.
+func batchResponse(name string, res *plugin.BatchResponse, n int) (*types.CallBatchResponse, error) {
 	if res == nil || len(res.Responses) != n {
-		return nil, 0, fmt.Errorf("%s: plugin returned the wrong number of responses for %d requests", name, n)
+		return nil, fmt.Errorf("%s: plugin returned the wrong number of responses for %d requests", name, n)
 	}
 	br := &types.CallBatchResponse{
 		Responses: make([]types.ShiroResponse, n),
@@ -439,11 +439,11 @@ func batchResponse(name string, res *plugin.BatchResponse, n int) (*types.CallBa
 	}
 	for i, r := range res.Responses {
 		if r == nil {
-			return nil, 0, fmt.Errorf("%s: plugin returned no response for request %d", name, i)
+			return nil, fmt.Errorf("%s: plugin returned no response for request %d", name, i)
 		}
 		if i < len(res.IDs) && len(res.IDs[i]) > 0 {
 			if err := json.Unmarshal(res.IDs[i], &br.IDs[i]); err != nil {
-				return nil, 0, fmt.Errorf("%s: id of response %d: %w", name, i, err)
+				return nil, fmt.Errorf("%s: id of response %d: %w", name, i, err)
 			}
 		}
 		if r.HasError {
@@ -452,9 +452,15 @@ func batchResponse(name string, res *plugin.BatchResponse, n int) (*types.CallBa
 			br.Responses[i] = types.NewSuccessResponse(r.ResultJSON, br.TxID, 0, 0)
 		}
 	}
-	failed := br.FailedIndex()
-	if res.FailedIndex >= 0 && res.FailedIndex < n && br.Responses[res.FailedIndex].Error() != nil {
-		failed = res.FailedIndex
+	return br, nil
+}
+
+// batchFailedIndex returns the index of the batch's failed request, or -1.
+// It prefers the plugin's reported index when that request did fail.  br is
+// batchResponse's conversion of res.
+func batchFailedIndex(res *plugin.BatchResponse, br *types.CallBatchResponse) int {
+	if res.FailedIndex >= 0 && res.FailedIndex < len(br.Responses) && br.Responses[res.FailedIndex].Error() != nil {
+		return res.FailedIndex
 	}
-	return br, failed, nil
+	return br.FailedIndex()
 }

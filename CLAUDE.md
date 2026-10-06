@@ -73,7 +73,7 @@ Functional options via `Config` interface. All operations accept variadic `...Co
 
 ## CI
 
-GitHub Actions on PRs to `main`: golangci-lint v2.6, then `make citest`. See `.github/workflows/shiroclient-sdk-go.yml`.
+GitHub Actions on PRs to `main`: golangci-lint v2.13 (config in `.golangci.yml`, rules shared with luthersystems/elps and luthersystems/substrate), then `make citest`. See `.github/workflows/shiroclient-sdk-go.yml`.
 
 ## Skills
 

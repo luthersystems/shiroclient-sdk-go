@@ -83,7 +83,7 @@ func TestCallOutcome(t *testing.T) {
 						assert.EqualError(t, err, call.prefix+serverMessage)
 						return
 					}
-					assert.EqualError(t, err, call.prefix+legacy)
+					require.EqualError(t, err, call.prefix+legacy)
 					assert.Equal(t, codes.Unavailable, status.Code(err))
 					st, ok := status.FromError(err)
 					require.True(t, ok)
@@ -99,8 +99,8 @@ func TestCallOutcome(t *testing.T) {
 					assert.Equal(t, "shiroclient.luthersystems.com", info.Domain)
 					assert.Equal(t, map[string]string{"tx_id": tc.txID}, info.Metadata)
 					for _, remote := range []error{st.Err(), fmt.Errorf("wrapped: %w", st.Err())} {
-						txID, ok := phylum.AmbiguousTxID(remote)
-						assert.True(t, ok)
+						txID, found := phylum.AmbiguousTxID(remote)
+						assert.True(t, found)
 						assert.Equal(t, tc.txID, txID)
 					}
 					wrappedStatus, ok := status.FromError(fmt.Errorf("wrapped: %w", st.Err()))

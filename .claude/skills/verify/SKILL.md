@@ -9,15 +9,17 @@ Run every check that CI runs, locally, so you never push broken code.
 
 ## Workflow
 
-CI runs two steps on PRs to `main` (see `.github/workflows/shiroclient-sdk-go.yml`):
+CI runs these checks on PRs to `main` (see `.github/workflows/shiroclient-sdk-go.yml`):
 
-### 1. Lint (golangci-lint v1.63)
+### 1. Lint (golangci-lint v2.13)
 
 ```bash
+golangci-lint config verify
 golangci-lint run ./...
 ```
 
-No custom config file exists; uses golangci-lint defaults with version v1.63.
+Rules live in `.golangci.yml` (shared with luthersystems/elps and
+luthersystems/substrate). Use v2.13 locally: findings differ across minors.
 
 ### 2. Full CI Test Suite
 
@@ -37,7 +39,7 @@ golangci-lint run ./... && make test
 
 ## Key Reminders
 
-- CI runs on `ubuntu-latest` with Go 1.23. Ensure your local Go version matches.
+- CI runs on `ubuntu-latest` with Go 1.25. Ensure your local Go version matches.
 - There is no separate format check; formatting issues are caught by golangci-lint.
 - The plugin download (`make plugin`) uses `scripts/obtain-plugin.sh` and requires network access.
 - Plugin version is pinned in `common.config.mk` (`SUBSTRATE_VERSION=v2.240.0`).

@@ -53,10 +53,9 @@ func Test001(t *testing.T) {
 		shiroclient.WithTimestampGenerator(tsGenerator),
 	}
 	client, err := shiroclient.NewMock(clientConfigs)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	t.Cleanup(func() {
-		err := client.Close()
-		require.NoError(t, err)
+		require.NoError(t, client.Close())
 	})
 
 	ctx := context.Background()

@@ -15,7 +15,12 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.6
+          version: v2.13
+      # `golangci-lint run` does not reject an unknown key in .golangci.yml (a
+      # misspelled section runs to "0 issues"); only the schema check does.
+      # v2.13 embeds the schema, so this needs no network.
+      - name: golangci-lint config schema
+        run: golangci-lint config verify
       - name: Run CI tests
         run: make citest
   # Known-vulnerability gate: call-graph-aware, fails only on vulns whose

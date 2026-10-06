@@ -7,6 +7,7 @@ import (
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/anypb"
 )
@@ -22,7 +23,7 @@ func TestMarshalUnmarshalWithDiscardUnknown(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(jsonBytes, &m))
 	m["mystery"] = "surprise"
 	payload, err := json.Marshal(m)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// remember and restore global flag
 	origFlag := types.UnmarshalOptions.DiscardUnknown
@@ -47,7 +48,7 @@ func TestMarshalUnmarshalWithDiscardUnknown(t *testing.T) {
 			if tc.wantErr {
 				assert.Error(t, err, "expected an error for mystery field")
 			} else {
-				assert.NoError(t, err, "did not expect error when discarding unknowns")
+				require.NoError(t, err, "did not expect error when discarding unknowns")
 				assert.Equal(t, orig.GetTypeUrl(), got.GetTypeUrl(), "TypeUrl round-trips")
 			}
 		})

@@ -59,22 +59,33 @@ const (
 	batchProcessResponseMethod = "batch_process_response"
 )
 
-func (d *Driver) call(ctx context.Context, method string, params interface{}, batchName string, batchID string, requestID string, clientConfigs ...shiroclient.Config) []byte {
+// batchCall is one phylum call the driver makes while polling.
+type batchCall struct {
+	method string
+	params interface{}
+	// batchName, batchID and requestID label the call's log entries; an
+	// empty one is omitted.
+	batchName string
+	batchID   string
+	requestID string
+}
+
+func (d *Driver) call(ctx context.Context, c batchCall, clientConfigs ...shiroclient.Config) []byte {
 	fields := make(logrus.Fields)
-	if batchName != "" {
-		fields["batchName"] = batchName
+	if c.batchName != "" {
+		fields["batchName"] = c.batchName
 	}
-	if batchID != "" {
-		fields["batchID"] = batchID
+	if c.batchID != "" {
+		fields["batchID"] = c.batchID
 	}
-	if requestID != "" {
-		fields["requestID"] = requestID
+	if c.requestID != "" {
+		fields["requestID"] = c.requestID
 	}
-	newConfigs := []shiroclient.Config{shiroclient.WithParams(params), shiroclient.WithLogrusFields(d.opt.logFields), shiroclient.WithLogrusFields(fields), shiroclient.WithParams(params)}
+	newConfigs := []shiroclient.Config{shiroclient.WithParams(c.params), shiroclient.WithLogrusFields(d.opt.logFields), shiroclient.WithLogrusFields(fields), shiroclient.WithParams(c.params)}
 	configs := make([]shiroclient.Config, 0, len(newConfigs)+len(clientConfigs))
 	configs = append(configs, newConfigs...)
 	configs = append(configs, clientConfigs...)
-	sr, err := d.client.Call(ctx, method, configs...)
+	sr, err := d.client.Call(ctx, c.method, configs...)
 	if err != nil {
 		d.opt.log.
 			WithFields(d.opt.logFields).
@@ -117,23 +128,23 @@ type RequestEnvelope struct {
 type ResponseEnvelope struct {
 	BatchID   string          `json:"batch_id"`
 	RequestID string          `json:"request_id"`
-	IsError   bool            `json:"is_error"`
 	Message   json.RawMessage `json:"message"`
+	IsError   bool            `json:"is_error"`
 }
 
 type callbackFunc func(batchID string, requestID string, message json.RawMessage) (json.RawMessage, error)
 
 // Ticker allows control over batch polling.
 type Ticker struct {
-	driver        *Driver
-	batchName     string
-	callback      callbackFunc
-	clientConfigs []shiroclient.Config
-	ticker        *time.Ticker
-	override      chan bool
+	driver   *Driver
+	callback callbackFunc
+	ticker   *time.Ticker
+	override chan bool
 	// rwMutex guards the enable boolean
-	rwMutex *sync.RWMutex
-	enable  bool
+	rwMutex       *sync.RWMutex
+	batchName     string
+	clientConfigs []shiroclient.Config
+	enable        bool
 }
 
 // Tick forces an additional poll right now. This is independent of
@@ -144,7 +155,11 @@ type Ticker struct {
 func (t *Ticker) Tick(ctx context.Context) {
 	d := t.driver
 
-	res := d.call(ctx, batchGetRequestsMethod, []interface{}{t.batchName}, t.batchName, "", "", t.clientConfigs...)
+	res := d.call(ctx, batchCall{
+		method:    batchGetRequestsMethod,
+		params:    []interface{}{t.batchName},
+		batchName: t.batchName,
+	}, t.clientConfigs...)
 	if res == nil {
 		return
 	}
@@ -164,7 +179,7 @@ func (t *Ticker) Tick(ctx context.Context) {
 	defer wg.Wait()
 
 	for _, env := range envs {
-		env := env
+
 		if env.BatchID == "" || env.RequestID == "" || len(env.Message) == 0 {
 			d.opt.log.
 				WithFields(d.opt.logFields).
@@ -222,7 +237,13 @@ func (t *Ticker) Tick(ctx context.Context) {
 					Message:   message,
 				},
 			}
-			result := d.call(ctx, batchProcessResponseMethod, params, t.batchName, env.BatchID, env.RequestID, t.clientConfigs...)
+			result := d.call(ctx, batchCall{
+				method:    batchProcessResponseMethod,
+				params:    params,
+				batchName: t.batchName,
+				batchID:   env.BatchID,
+				requestID: env.RequestID,
+			}, t.clientConfigs...)
 			if result == nil {
 				d.opt.log.
 					WithFields(d.opt.logFields).
@@ -280,7 +301,7 @@ func (t *Ticker) Stop() {
 // w.r.t the "main" thread (or the thread that invoked
 // Register). Also, the callback function should return results in a
 // reasonable timeframe or return an error, not hang indefinitely.
-func (d *Driver) Register(ctx context.Context, batchName string, interval time.Duration, callback func(batchID string, requestID string, message json.RawMessage) (json.RawMessage, error), configs ...shiroclient.Config) *Ticker {
+func (d *Driver) Register(ctx context.Context, batchName string, interval time.Duration, callback func(batchID string, requestID string, message json.RawMessage) (json.RawMessage, error), configs ...shiroclient.Config) *Ticker { //nolint:revive // public API: changing the signature breaks callers.
 	ticker := &Ticker{
 		driver:        d,
 		batchName:     batchName,

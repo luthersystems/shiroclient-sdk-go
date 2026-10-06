@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -92,19 +93,19 @@ func TestCallBatchPerRequestTransientMXF(t *testing.T) {
 	}, seed)
 	require.NoError(t, err)
 
-	params := (<-got)["params"].(map[string]interface{})
-	reqs := params["requests"].([]interface{})
+	params := as[map[string]interface{}](t, (<-got)["params"])
+	reqs := as[[]interface{}](t, params["requests"])
 	require.Len(t, reqs, 2)
 	for i, want := range []*private.EncodeRequest{alice, bob} {
-		wantJSON, err := json.Marshal(want)
-		require.NoError(t, err)
-		transient := reqs[i].(map[string]interface{})["transient"].(map[string]interface{})
+		wantJSON, merr := json.Marshal(want)
+		require.NoError(t, merr)
+		transient := as[map[string]interface{}](t, as[map[string]interface{}](t, reqs[i])["transient"])
 		assert.Equal(t, []string{"mxf"}, keys(transient), "request %d carries only its own mxf; its seed yields to the batch's", i)
 		assert.Equal(t, hex.EncodeToString(wantJSON), transient["mxf"], "request %d", i)
 	}
-	assert.NotEqual(t, reqs[0].(map[string]interface{})["transient"], reqs[1].(map[string]interface{})["transient"])
+	assert.NotEqual(t, as[map[string]interface{}](t, reqs[0])["transient"], as[map[string]interface{}](t, reqs[1])["transient"])
 
-	shared := params["transient"].(map[string]interface{})
+	shared := as[map[string]interface{}](t, params["transient"])
 	assert.Equal(t, []string{"csprng_seed_private"}, keys(shared), "the seed is shared by the transaction")
 	seedHex, ok := shared["csprng_seed_private"].(string)
 	require.True(t, ok)
@@ -125,13 +126,13 @@ func seedOf(t *testing.T, configs ...shiroclient.Config) string {
 // carries a seed of its own.
 func sentSeed(t *testing.T, got <-chan map[string]interface{}) map[string]interface{} {
 	t.Helper()
-	params := (<-got)["params"].(map[string]interface{})
-	for i, r := range params["requests"].([]interface{}) {
+	params := as[map[string]interface{}](t, (<-got)["params"])
+	for i, r := range as[[]interface{}](t, params["requests"]) {
 		if transient, ok := r.(map[string]interface{})["transient"].(map[string]interface{}); ok {
 			assert.NotContains(t, transient, "csprng_seed_private", "request %d sends no seed of its own", i)
 		}
 	}
-	return params["transient"].(map[string]interface{})
+	return as[map[string]interface{}](t, params["transient"])
 }
 
 func TestCallBatchPromotesFirstRequestSeed(t *testing.T) {
@@ -145,7 +146,7 @@ func TestCallBatchPromotesFirstRequestSeed(t *testing.T) {
 				if i < first {
 					continue // no seed before the first seeded request
 				}
-				configs, err := private.WithTransientMXF(mxfRequest(t, private.DSID(fmt.Sprint(i))))
+				configs, err := private.WithTransientMXF(mxfRequest(t, private.DSID(strconv.Itoa(i))))
 				require.NoError(t, err)
 				requests[i].Configs = configs
 				seeds = append(seeds, seedOf(t, configs...))

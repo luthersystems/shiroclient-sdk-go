@@ -76,8 +76,8 @@ func (e *OutcomeUnknownError) Is(target error) bool {
 }
 
 // OutcomeUnknownTxID finds an outcome-unknown transaction through wrapped errors.
-// The ID may be empty even when ok is true. Old servers do not report this state.
-func OutcomeUnknownTxID(err error) (txID string, ok bool) {
+// The ID may be empty even when the bool is true. Old servers do not report this state.
+func OutcomeUnknownTxID(err error) (string, bool) {
 	var outcome *OutcomeUnknownError
 	if errors.As(err, &outcome) {
 		return outcome.TxID, true
@@ -195,7 +195,7 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpClient *http.Client,
 			// Here, we wrap the non-canceled error as a canceled error, so
 			// the application can properly handle it.
 			if errors.Is(ctx.Err(), context.Canceled) {
-				return nil, fmt.Errorf("%w: %s", context.Canceled, err)
+				return nil, fmt.Errorf("%w: %w", context.Canceled, err)
 			}
 			return nil, err
 		}
@@ -208,8 +208,14 @@ func convertToUint64(value interface{}) (uint64, error) {
 	case float64:
 		return uint64(v), nil
 	case int:
+		if v < 0 {
+			return 0, fmt.Errorf("negative value: %d", v)
+		}
 		return uint64(v), nil
 	case int64:
+		if v < 0 {
+			return 0, fmt.Errorf("negative value: %d", v)
+		}
 		return uint64(v), nil
 	case uint64:
 		return v, nil
@@ -240,7 +246,7 @@ func (c *rpcShiroClient) reqres(ctx context.Context, req interface{}, opt *types
 		}).Debug("UNSAFE: reqres: POST request")
 	}
 
-	httpReq, err := http.NewRequest("POST", opt.Endpoint, bytes.NewReader(outmsg))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, opt.Endpoint, bytes.NewReader(outmsg))
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +397,7 @@ func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, con
 	}
 
 	// Do the health check
-	hreq, err := http.NewRequest("GET", checkURL, nil)
+	hreq, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck request: %w", err)
 	}
@@ -534,7 +540,10 @@ func (c *rpcShiroClient) Init(ctx context.Context, phylum string, configs ...typ
 
 	switch res.errorLevel {
 	case rpc.ErrorLevelNoError:
-		resultJSON, _ := json.Marshal(res.result)
+		resultJSON, err := json.Marshal(res.result)
+		if err != nil {
+			return fmt.Errorf("marshal result: %w", err)
+		}
 		res := types.NewSuccessResponse(resultJSON, res.txID, res.comBlockNum, res.simBlockNum)
 		if opt.ResponseReceiver != nil {
 			opt.ResponseReceiver(res)
@@ -787,8 +796,8 @@ func (c *rpcShiroClient) QueryBlock(ctx context.Context, blockNumber uint64, con
 		txidsOut := make([]string, len(txids))
 
 		for idx, txidArb := range txids {
-			txid, ok := txidArb.(string)
-			if !ok {
+			txid, isString := txidArb.(string)
+			if !isString {
 				return nil, errors.New("ShiroClient.QueryBlock expected a string transaction_id member")
 			}
 
@@ -810,8 +819,8 @@ func (c *rpcShiroClient) QueryBlock(ctx context.Context, blockNumber uint64, con
 		reasonsOut := make([]string, len(reasons))
 
 		for idx, reasonArb := range reasons {
-			reason, ok := reasonArb.(string)
-			if !ok {
+			reason, isString := reasonArb.(string)
+			if !isString {
 				return nil, errors.New("ShiroClient.QueryBlock expected a string transaction_reason member")
 			}
 
@@ -833,8 +842,8 @@ func (c *rpcShiroClient) QueryBlock(ctx context.Context, blockNumber uint64, con
 		eventsOut := make([][]byte, len(events))
 
 		for idx, eventArb := range events {
-			event, ok := eventArb.(string)
-			if !ok {
+			event, isString := eventArb.(string)
+			if !isString {
 				return nil, errors.New("ShiroClient.QueryBlock expected a string transaction_event member")
 			}
 

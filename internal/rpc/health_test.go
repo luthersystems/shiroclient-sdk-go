@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnmarshalHealthResponse_invalid(t *testing.T) {
@@ -16,7 +17,7 @@ func TestUnmarshalHealthResponse_invalid(t *testing.T) {
 		{`{"reports": [{"timestamp": 1234}]}`},    // invalid field type
 	} {
 		resp, err := unmarshalHealthResponse([]byte(test.jsbody))
-		assert.Error(t, err, "test %d success", i)
+		require.Error(t, err, "test %d success", i)
 		assert.Nil(t, resp, "test %d response", i)
 	}
 }
@@ -72,9 +73,9 @@ func TestUnmarshalHealthResponse(t *testing.T) {
 		}},
 	} {
 		resp, err := unmarshalHealthResponse([]byte(test.jsbody))
-		assert.NoError(t, err, "test %d failure", i)
+		require.NoError(t, err, "test %d failure", i)
 		reports := resp.Reports()
-		assert.Equal(t, len(test.reports), len(reports), "test %d unexpected length", i)
+		assert.Len(t, reports, len(test.reports), "test %d unexpected length", i)
 		for j, r := range reports {
 			assert.Equal(t, test.reports[j], r, "test %d report %d difference", i, j)
 		}
