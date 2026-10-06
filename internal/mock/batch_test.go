@@ -3,8 +3,8 @@ package mock
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
@@ -42,9 +42,9 @@ type noBatch struct{ plugin.Substrate }
 
 func okBatch(txID string, committed bool, n int) *plugin.BatchResponse {
 	resp := &plugin.BatchResponse{TransactionID: txID, Committed: committed, FailedIndex: -1}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		resp.Responses = append(resp.Responses, &plugin.Response{ResultJSON: []byte(fmt.Sprintf(`"r%d"`, i)), TransactionID: txID})
-		resp.IDs = append(resp.IDs, []byte(fmt.Sprint(i)))
+		resp.IDs = append(resp.IDs, []byte(strconv.Itoa(i)))
 	}
 	return resp
 }
@@ -97,7 +97,7 @@ func TestMockCallBatchFailure(t *testing.T) {
 		{Method: "put", ID: "w"}, {Method: "private_decode", ID: "d"},
 	})
 	var batchErr *types.CallBatchError
-	require.True(t, errors.As(err, &batchErr), "got %T: %v", err, err)
+	require.ErrorAs(t, err, &batchErr, "got %T: %v", err, err)
 	assert.Equal(t, 1, batchErr.Index)
 	assert.Equal(t, "d", batchErr.ID)
 	assert.Equal(t, types.CodeForcedNoCommit, batchErr.Err.Code())
@@ -130,9 +130,9 @@ func TestMockBatchNotSupported(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c := &mockShiroClient{substrate: sub, tag: "t"}
 			_, err := c.CallBatch(context.Background(), []types.CallBatchRequest{{Method: "a"}})
-			assert.True(t, errors.Is(err, types.ErrCallBatchNotSupported), "got %v", err)
+			require.ErrorIs(t, err, types.ErrCallBatchNotSupported, "got %v", err)
 			_, err = c.QueryBatch(context.Background(), []types.CallBatchRequest{{Method: "a"}})
-			assert.True(t, errors.Is(err, types.ErrQueryBatchNotSupported), "got %v", err)
+			assert.ErrorIs(t, err, types.ErrQueryBatchNotSupported, "got %v", err)
 		})
 	}
 }
@@ -187,7 +187,7 @@ func TestMockBatchReleasedPlugin(t *testing.T) {
 				{Method: "write-then-fail", Params: []interface{}{"z"}},
 			})
 			var batchErr *types.CallBatchError
-			require.True(t, errors.As(err, &batchErr), "got %v", err)
+			require.ErrorAs(t, err, &batchErr, "got %v", err)
 			assert.Equal(t, 1, batchErr.Index)
 			require.NotNil(t, resp)
 			assert.False(t, resp.Committed)
@@ -196,7 +196,7 @@ func TestMockBatchReleasedPlugin(t *testing.T) {
 			assert.Equal(t, `"x"`, read(), "nothing committed")
 
 			resp, err = c.CallBatch(ctx, []types.CallBatchRequest{{Method: "no-commit"}})
-			require.True(t, errors.As(err, &batchErr), "got %v", err)
+			require.ErrorAs(t, err, &batchErr, "got %v", err)
 			assert.Equal(t, types.CodeForcedNoCommit, batchErr.Err.Code())
 			assert.False(t, resp.Committed)
 

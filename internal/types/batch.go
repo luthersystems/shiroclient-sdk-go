@@ -140,6 +140,8 @@ type CallBatchRequest struct {
 	// before the batch is sent.  When nil, the server uses the request's
 	// index in the batch.
 	ID interface{}
+	// Method is the phylum endpoint to call.
+	Method string
 	// Configs are Call configs for this request only, applied in order as
 	// for Call.  Only transient data may be set here: WithTransientData,
 	// WithTransientDataMap and helpers built on them, such as
@@ -165,13 +167,13 @@ type CallBatchRequest struct {
 	// WithCCFetchURLDowngrade, WithResponse, WithResponseReceiver and
 	// WithUnsafeDebug.  Pass those in the batch's own configs.
 	Configs []Config
-	// Method is the phylum endpoint to call.
-	Method string
 }
 
 // CallBatchResponse is the result of a CallBatch or a QueryBatch.  A
 // QueryBatch is never committed: Committed is false and TxID is empty.
 type CallBatchResponse struct {
+	// TxID is the committed transaction's ID; empty when not committed.
+	TxID string
 	// Responses holds one response per request, in request order.  In a
 	// batch that was not committed because a request failed, every response
 	// is a failure.
@@ -179,8 +181,6 @@ type CallBatchResponse struct {
 	// IDs holds each response's JSON-RPC id as the server returned it,
 	// decoded from JSON (so a numeric id is a float64).
 	IDs []interface{}
-	// TxID is the committed transaction's ID; empty when not committed.
-	TxID string
 	// CommitBlockNum is the block that committed the transaction, or 0.
 	CommitBlockNum uint64
 	// MaxSimBlockNum is the max block number that simulated the batch.
@@ -257,10 +257,10 @@ const CodeForcedNoCommit = -32002
 
 // CallBatchAborted reports whether err is the error given to a request of a batch
 // that did not fail itself but was not committed because another request
-// failed.  failedID is the id of the request that failed. Only the reserved
+// failed.  The first result is the id of the request that failed. Only the reserved
 // code CodeBatchAborted counts: a phylum error whose data merely looks like
 // the abort marker is that request's own failure.
-func CallBatchAborted(err Error) (failedID interface{}, ok bool) {
+func CallBatchAborted(err Error) (interface{}, bool) {
 	if err == nil || err.Code() != CodeBatchAborted {
 		return nil, false
 	}
@@ -304,18 +304,28 @@ var requestOptionNames = map[string]string{
 	"DebugPrint":          "WithUnsafeDebug",
 }
 
+// RequestTransientResult is what RequestTransient extracts from a
+// CallBatchRequest's Configs.
+type RequestTransientResult struct {
+	// Transient is the request's own transient data, or nil.
+	Transient map[string][]byte
+	// Seed is the first CSPRNG seed the Configs carry, or nil.
+	Seed []byte
+}
+
 // RequestTransient applies a CallBatchRequest's Configs and returns the
-// transient data they set, or nil when they set none.  Every other option
+// transient data they set, nil when they set none.  Every other option
 // is refused: it applies to the whole transaction or the HTTP call, not to
 // one request.  A new RequestOptions field is refused until it is known to
 // be per-request.  A CSPRNGSeedConfig (private.WithSeed, and so
 // private.WithTransientMXF) does not set the request's transient data: its
-// seed is returned, the first one when there are several, for the batch to
+// seed is returned (as Seed), the first one when there are several, for the batch to
 // promote to the transaction's seed.
-func RequestTransient(configs []Config) (transient map[string][]byte, seed []byte, err error) {
+func RequestTransient(configs []Config) (RequestTransientResult, error) {
 	if len(configs) == 0 {
-		return nil, nil, nil
+		return RequestTransientResult{}, nil
 	}
+	var seed []byte
 	newOpts := func() *RequestOptions {
 		return &RequestOptions{
 			LogFields: map[string]interface{}{},
@@ -326,7 +336,7 @@ func RequestTransient(configs []Config) (transient map[string][]byte, seed []byt
 	opt, blank := newOpts(), newOpts()
 	for i, c := range configs {
 		if c == nil {
-			return nil, nil, fmt.Errorf("config %d is nil", i)
+			return RequestTransientResult{}, fmt.Errorf("config %d is nil", i)
 		}
 		if sc, ok := c.(*csprngSeedConfig); ok {
 			if seed == nil {
@@ -337,7 +347,7 @@ func RequestTransient(configs []Config) (transient map[string][]byte, seed []byt
 		c.Fn(opt)
 	}
 	got, want := reflect.ValueOf(opt).Elem(), reflect.ValueOf(blank).Elem()
-	for i := 0; i < got.NumField(); i++ {
+	for i := range got.NumField() {
 		name := got.Type().Field(i).Name
 		if name == "Transient" {
 			continue
@@ -349,16 +359,16 @@ func RequestTransient(configs []Config) (transient map[string][]byte, seed []byt
 			if !ok {
 				label = name
 			}
-			return nil, nil, fmt.Errorf("%s cannot be set per request: it applies to the whole transaction or HTTP call; pass it in CallBatch's configs", label)
+			return RequestTransientResult{}, fmt.Errorf("%s cannot be set per request: it applies to the whole transaction or HTTP call; pass it in CallBatch's configs", label)
 		}
 	}
 	if len(opt.Transient) == 0 {
-		return nil, seed, nil
+		return RequestTransientResult{Seed: seed}, nil
 	}
 	if err := checkRequestTransientKeys(opt.Transient); err != nil {
-		return nil, nil, err
+		return RequestTransientResult{}, err
 	}
-	return opt.Transient, seed, nil
+	return RequestTransientResult{Transient: opt.Transient, Seed: seed}, nil
 }
 
 // PreparedBatchRequest is a CallBatchRequest checked and rendered for the
@@ -399,17 +409,17 @@ func PrepareBatch(name string, requests []CallBatchRequest, opt *RequestOptions)
 		if err != nil {
 			return nil, fmt.Errorf("%s: request %d: %w", name, i, err)
 		}
-		transient, reqSeed, err := RequestTransient(r.Configs)
+		rt, err := RequestTransient(r.Configs)
 		if err != nil {
 			return nil, fmt.Errorf("%s: request %d: %w", name, i, err)
 		}
 		if seed == nil {
-			seed = reqSeed
+			seed = rt.Seed
 		}
 		if r.ID != nil && !ValidBatchID(r.ID) {
 			return nil, fmt.Errorf("%s: request %d: id must be a string, or a number within ±2^53 (the gateway decodes ids as float64); got %T %v", name, i, r.ID, r.ID)
 		}
-		out[i] = PreparedBatchRequest{Method: r.Method, Params: params, Transient: transient, ID: r.ID}
+		out[i] = PreparedBatchRequest{Method: r.Method, Params: params, Transient: rt.Transient, ID: r.ID}
 	}
 	if _, ok := opt.Transient[CSPRNGSeedKey]; !ok && seed != nil {
 		// The batch set no seed: promote the first request's.  Every

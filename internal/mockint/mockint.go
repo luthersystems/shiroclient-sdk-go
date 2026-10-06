@@ -20,22 +20,22 @@ type LogLevel int
 
 // Config is the internal configuration for the mock client
 type Config struct {
-	PluginPath     string
 	LogWriter      io.Writer
-	LogLevel       LogLevel
 	SnapshotReader io.Reader
+	PluginPath     string
+	// Creator is the fake transaction creator MSP ID set on the mock
+	// ledger when it is created. Empty leaves the creator unset.
+	Creator  string
+	LogLevel LogLevel
 	// PreheatTimeout overrides the substrate phylum preheat/init timeout. A
 	// non-positive value leaves the substrate default in effect.
 	PreheatTimeout time.Duration
-	// SharedPlugin hosts the mock in a plugin process shared with other
-	// mocks that use the same plugin path, log level and log writer.
-	SharedPlugin bool
 	// SharedIdleTimeout is how long a shared plugin process stays alive
 	// after its last mock closes. Zero stops it immediately.
 	SharedIdleTimeout time.Duration
-	// Creator is the fake transaction creator MSP ID set on the mock
-	// ledger when it is created. Empty leaves the creator unset.
-	Creator string
+	// SharedPlugin hosts the mock in a plugin process shared with other
+	// mocks that use the same plugin path, log level and log writer.
+	SharedPlugin bool
 }
 
 // DefaultCreator is the default Creator: the fake transaction creator MSP

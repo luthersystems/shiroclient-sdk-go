@@ -47,7 +47,7 @@ Follow these conventions:
 golangci-lint run ./...
 ```
 
-This matches CI (golangci-lint v1.63, default config). Fix any issues before proceeding.
+This matches CI (golangci-lint v2.13, `.golangci.yml`). Fix any issues before proceeding.
 
 ### 5. Run Tests
 

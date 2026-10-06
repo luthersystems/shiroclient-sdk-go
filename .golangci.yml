@@ -1,0 +1,78 @@
+version: "2"
+run:
+  timeout: 5m
+issues:
+  # Report every finding. The defaults (max-issues-per-linter: 50,
+  # max-same-issues: 3) hide repeats, so a run under-reports and "fix and
+  # re-run" never ends. Same setting as luthersystems/elps and
+  # luthersystems/substrate.
+  max-issues-per-linter: 0
+  max-same-issues: 0
+linters:
+  enable:
+    # The union of the sets luthersystems/elps and luthersystems/substrate
+    # enable.
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - errchkjson
+    - errorlint
+    - exhaustive
+    - forcetypeassert
+    - gosec
+    - intrange
+    - makezero
+    - nilerr
+    - noctx
+    - nolintlint
+    - nonamedreturns
+    - perfsprint
+    - predeclared
+    - revive
+    - testifylint
+    - unconvert
+    - usestdlibvars
+    - wastedassign
+  settings:
+    revive:
+      rules:
+        - name: function-result-limit
+          arguments: [2]
+        - name: argument-limit
+          arguments: [4]
+    exhaustive:
+      # A switch with a `default:` has decided what to do with the cases it
+      # does not name. Only a switch with no default can drop a value silently.
+      default-signifies-exhaustive: true
+    nonamedreturns:
+      # A deferred closure that writes a named result is the one case where
+      # result names change behaviour. Report it too.
+      report-error-in-defer: true
+    govet:
+      enable:
+        # shadow reports a `:=` that redeclares a name from an enclosing
+        # scope, the shape that leaves an outer err or result unset.
+        - shadow
+        # fieldalignment keeps struct fields ordered to minimise padding and
+        # the pointer bytes the GC scans. Test files are exempt (below).
+        - fieldalignment
+      settings:
+        shadow:
+          # Report a shadow only when the outer variable is used after the
+          # inner declaration.
+          strict: false
+    staticcheck:
+      checks:
+        - "all"
+        - "-ST*" # Same as luthersystems/elps: style checks stay off.
+  exclusions:
+    rules:
+      - linters:
+          - revive
+        path: '_test\.go$'
+      # fieldalignment covers production code only. Test fixtures and mocks
+      # are written for readability and are not on a hot path.
+      - linters:
+          - govet
+        text: "fieldalignment:"
+        path: '_test\.go$'

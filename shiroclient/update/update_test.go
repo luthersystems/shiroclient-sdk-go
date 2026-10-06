@@ -36,8 +36,8 @@ func TestGetPhyla(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, phyla.Phyla, 1)
-	require.Equal(t, phyla.Phyla[0].PhylumID, defaultPhylumID)
-	require.Equal(t, phyla.Phyla[0].Status, update.StatusInService)
+	require.Equal(t, defaultPhylumID, phyla.Phyla[0].PhylumID)
+	require.Equal(t, update.StatusInService, phyla.Phyla[0].Status)
 	require.NotEmpty(t, phyla.Phyla[0].Fingerprint)
 	require.NotEmpty(t, phyla.Phyla[0].InitTimestamp)
 }
@@ -69,14 +69,14 @@ func TestEnableDisable(t *testing.T) {
 	t.Run("re-enable", func(t *testing.T) {
 		phyla, err := update.GetPhyla(ctx, client)
 		require.NoError(t, err)
-		require.Equal(t, phyla.Phyla[0].Status, update.StatusDisabled)
+		require.Equal(t, update.StatusDisabled, phyla.Phyla[0].Status)
 
 		err = update.Enable(ctx, client, defaultPhylumID)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		phyla, err = update.GetPhyla(ctx, client)
 		require.NoError(t, err)
-		require.Equal(t, phyla.Phyla[0].Status, update.StatusInService)
+		require.Equal(t, update.StatusInService, phyla.Phyla[0].Status)
 	})
 }
 

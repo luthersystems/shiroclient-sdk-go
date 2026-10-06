@@ -13,7 +13,7 @@ import (
 // so a field added later is refused per request until it is classified.
 func TestRequestTransientRefusesEveryOtherField(t *testing.T) {
 	typ := reflect.TypeOf(RequestOptions{})
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		f := typ.Field(i)
 		if f.Name == "Transient" {
 			continue
@@ -34,7 +34,7 @@ func TestRequestTransientRefusesEveryOtherField(t *testing.T) {
 						}
 						return out
 					}))
-				case reflect.Ptr:
+				case reflect.Pointer:
 					v.Set(reflect.New(v.Type().Elem()))
 				case reflect.Slice:
 					v.Set(reflect.MakeSlice(v.Type(), 1, 1))
@@ -50,7 +50,7 @@ func TestRequestTransientRefusesEveryOtherField(t *testing.T) {
 					t.Fatalf("field %s: kind %s not covered by this test", f.Name, v.Kind())
 				}
 			})
-			_, _, err := RequestTransient([]Config{cfg})
+			_, err := RequestTransient([]Config{cfg})
 			require.Error(t, err)
 			if name, ok := requestOptionNames[f.Name]; ok {
 				assert.Contains(t, err.Error(), name)
@@ -61,7 +61,7 @@ func TestRequestTransientRefusesEveryOtherField(t *testing.T) {
 
 func TestRequestTransientNamesEveryField(t *testing.T) {
 	typ := reflect.TypeOf(RequestOptions{})
-	for i := 0; i < typ.NumField(); i++ {
+	for i := range typ.NumField() {
 		if name := typ.Field(i).Name; name != "Transient" {
 			assert.Contains(t, requestOptionNames, name, "name the config that sets %s", name)
 		}

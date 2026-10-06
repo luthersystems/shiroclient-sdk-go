@@ -3,7 +3,7 @@ package private_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
@@ -27,7 +27,7 @@ func newMockClient() (shiroclient.MockShiroClient, error) {
 		return nil, err
 	}
 	if version != "test" {
-		return nil, fmt.Errorf("expected version 'test'")
+		return nil, errors.New("expected version 'test'")
 	}
 	err = client.Init(ctx, shiroclient.EncodePhylumBytes(testPhylum))
 	if err != nil {

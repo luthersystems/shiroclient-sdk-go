@@ -45,27 +45,36 @@ func jsonRPCErrorOf(arb interface{}) *jsonRPCError {
 	return &jsonRPCError{code: int(code), message: message}
 }
 
-// sendBatch validates and sends a batch through the gateway method named
-// method (CallBatch or QueryBatch), which share their params, and returns
-// the gateway's answer.  unsupported is the error a gateway without the
-// method maps to.
-func (c *rpcShiroClient) sendBatch(ctx context.Context, method string, unsupported error, requests []types.CallBatchRequest, configs []types.Config) (*rpcres, *types.RequestOptions, error) {
+// batchKind names a gateway batch method (CallBatch or QueryBatch), which
+// share their params and result shape.
+type batchKind struct {
+	// unsupported is the error a gateway without the method maps to.
+	unsupported error
+	// method is the gateway method name.
+	method string
+}
+
+var (
+	callBatch  = batchKind{method: rpc.MethodCallBatch, unsupported: types.ErrCallBatchNotSupported}
+	queryBatch = batchKind{method: rpc.MethodQueryBatch, unsupported: types.ErrQueryBatchNotSupported}
+)
+
+// sendBatch validates and sends a batch through the gateway method of kind,
+// with the options opt, and returns the gateway's answer.
+func (c *rpcShiroClient) sendBatch(ctx context.Context, kind batchKind, requests []types.CallBatchRequest, opt *types.RequestOptions) (*rpcres, error) {
+	method := kind.method
 	name := "ShiroClient." + method
-	opt, err := c.applyConfigs(configs...)
-	if err != nil {
-		return nil, nil, err
-	}
 	prepared, err := types.PrepareBatch(name, requests, opt)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	reqs, err := batchRequestsJSON(prepared)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", name, err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	params, err := callOptionParams(ctx, opt)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s: shared %w", name, err)
+		return nil, fmt.Errorf("%s: shared %w", name, err)
 	}
 	params["requests"] = reqs
 
@@ -79,18 +88,18 @@ func (c *rpcShiroClient) sendBatch(ctx context.Context, method string, unsupport
 	if err != nil {
 		var rpcErr *jsonRPCError
 		if errors.As(err, &rpcErr) && rpcErr.code == jsonRPCCodeMethodNotFound {
-			return nil, nil, fmt.Errorf("%w: the gateway does not know %s (it needs luthersystems/substrate#521): %s",
-				unsupported, method, rpcErr.message)
+			return nil, fmt.Errorf("%w: the gateway does not know %s (it needs luthersystems/substrate#521): %s",
+				kind.unsupported, method, rpcErr.message)
 		}
-		return nil, nil, err
+		return nil, err
 	}
 	switch res.errorLevel {
 	case rpc.ErrorLevelNoError, rpc.ErrorLevelPhylum:
-		return res, opt, nil
+		return res, nil
 	case rpc.ErrorLevelShiroClient:
-		return nil, nil, res.getShiroClientError()
+		return nil, res.getShiroClientError()
 	default:
-		return nil, nil, fmt.Errorf("%s unexpected error level %d", name, res.errorLevel)
+		return nil, fmt.Errorf("%s unexpected error level %d", name, res.errorLevel)
 	}
 }
 
@@ -99,7 +108,7 @@ func (c *rpcShiroClient) sendBatch(ctx context.Context, method string, unsupport
 func (c *rpcShiroClient) CallBatch(ctx context.Context, requests []types.CallBatchRequest, configs ...types.Config) (*types.CallBatchResponse, error) {
 	ctx, span := c.tracer.Start(ctx, "sdk:CallBatch")
 	defer span.End()
-	return c.runBatch(ctx, rpc.MethodCallBatch, types.ErrCallBatchNotSupported, requests, configs)
+	return c.runBatch(ctx, callBatch, requests, configs)
 }
 
 // QueryBatch implements types.QueryBatcher: it simulates requests as one
@@ -108,15 +117,19 @@ func (c *rpcShiroClient) CallBatch(ctx context.Context, requests []types.CallBat
 func (c *rpcShiroClient) QueryBatch(ctx context.Context, requests []types.CallBatchRequest, configs ...types.Config) (*types.CallBatchResponse, error) {
 	ctx, span := c.tracer.Start(ctx, "sdk:QueryBatch")
 	defer span.End()
-	return c.runBatch(ctx, rpc.MethodQueryBatch, types.ErrQueryBatchNotSupported, requests, configs)
+	return c.runBatch(ctx, queryBatch, requests, configs)
 }
 
 // runBatch sends a CallBatch or a QueryBatch and interprets the answer, which
 // has the same shape for both; only a CallBatch may commit.
-func (c *rpcShiroClient) runBatch(ctx context.Context, method string, unsupported error, requests []types.CallBatchRequest, configs []types.Config) (*types.CallBatchResponse, error) {
-	name := "ShiroClient." + method
-	query := method == rpc.MethodQueryBatch
-	res, opt, err := c.sendBatch(ctx, method, unsupported, requests, configs)
+func (c *rpcShiroClient) runBatch(ctx context.Context, kind batchKind, requests []types.CallBatchRequest, configs []types.Config) (*types.CallBatchResponse, error) {
+	name := "ShiroClient." + kind.method
+	query := kind.method == rpc.MethodQueryBatch
+	opt, err := c.applyConfigs(configs...)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.sendBatch(ctx, kind, requests, opt)
 	if err != nil {
 		return nil, err
 	}

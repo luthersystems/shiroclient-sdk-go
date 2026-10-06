@@ -32,22 +32,22 @@ type MockOptions struct {
 // "flattened" to pure data.
 type ConcreteRequestOptions struct {
 	Headers             map[string]string
+	Transient           map[string][]byte
 	Endpoint            string
 	ID                  string
 	AuthToken           string
-	Params              []byte
-	Transient           map[string][]byte
 	Timestamp           string
-	MSPFilter           []string
-	MinEndorsers        int
 	Creator             string
 	DependentTxID       string
-	DisableWritePolling bool
-	CCFetchURLDowngrade bool
 	CCFetchURLProxy     string
 	DependentBlock      string
 	PhylumVersion       string
 	NewPhylumVersion    string
+	Params              []byte
+	MSPFilter           []string
+	MinEndorsers        int
+	DisableWritePolling bool
+	CCFetchURLDowngrade bool
 	DebugPrint          bool
 }
 
@@ -63,12 +63,12 @@ func (e Error) Error() string {
 
 // Response represents a shiroclient response.
 type Response struct {
-	ResultJSON    []byte
-	HasError      bool
-	ErrorCode     int
 	ErrorMessage  string
-	ErrorJSON     []byte
 	TransactionID string
+	ResultJSON    []byte
+	ErrorJSON     []byte
+	ErrorCode     int
+	HasError      bool
 }
 
 // UnmarshalTo unmarshals the response's result to dst.
@@ -80,8 +80,8 @@ func (s *Response) UnmarshalTo(dst interface{}) error {
 type Transaction struct {
 	ID          string
 	Reason      string
-	Event       []byte
 	ChaincodeID string
+	Event       []byte
 }
 
 // Block represents summary information about a block.
@@ -127,15 +127,15 @@ type ArgsNewMockFrom struct {
 
 // RespNewMockFrom encodes the response from NewMockFrom
 type RespNewMockFrom struct {
-	Tag string
 	Err *Error
+	Tag string
 }
 
 // ArgsSetCreatorWithAttributesMock encodes the arguments to SetCreatorWithAttributesMock
 type ArgsSetCreatorWithAttributesMock struct {
+	Attrs   map[string]string
 	Tag     string
 	Creator string
-	Attrs   map[string]string
 }
 
 // RespSetCreatorWithAttributesMock encodes the response from SetCreatorWithAttributesMock
@@ -150,8 +150,8 @@ type ArgsSnapshotMock struct {
 
 // RespSnapshotMock encodes the response from SnapshotMock
 type RespSnapshotMock struct {
-	Snapshot []byte
 	Err      *Error
+	Snapshot []byte
 }
 
 // ArgsCloseMock encodes the arguments to CloseMock
@@ -166,9 +166,9 @@ type RespCloseMock struct {
 
 // ArgsInit encodes the arguments to Init
 type ArgsInit struct {
+	Options *ConcreteRequestOptions
 	Tag     string
 	Phylum  string
-	Options *ConcreteRequestOptions
 }
 
 // RespInit encodes the response from Init
@@ -178,9 +178,9 @@ type RespInit struct {
 
 // ArgsCall encodes the arguments to Call
 type ArgsCall struct {
+	Options *ConcreteRequestOptions
 	Tag     string
 	Command string
-	Options *ConcreteRequestOptions
 }
 
 // RespCall encodes the response from Call
@@ -191,21 +191,21 @@ type RespCall struct {
 
 // ArgsQueryInfo encodes the arguments to QueryInfo
 type ArgsQueryInfo struct {
-	Tag     string
 	Options *ConcreteRequestOptions
+	Tag     string
 }
 
 // RespQueryInfo encodes the response from QueryInfo
 type RespQueryInfo struct {
-	Height uint64
 	Err    *Error
+	Height uint64
 }
 
 // ArgsQueryBlock encodes the arguments to QueryBlock
 type ArgsQueryBlock struct {
+	Options *ConcreteRequestOptions
 	Tag     string
 	Height  uint64
-	Options *ConcreteRequestOptions
 }
 
 // RespQueryBlock encodes the response from QueryBlock
@@ -495,10 +495,10 @@ var pluginMap = map[string]plugin.Plugin{
 }
 
 type connectOption struct {
-	level        hclog.Level
-	command      string
 	attachStdamp io.Writer
 	logOutput    io.Writer
+	command      string
+	level        hclog.Level
 }
 
 // ConnectOption represents the type of a builder action for connectOption
@@ -617,7 +617,9 @@ func NewSubstrateConnection(opts ...ConnectOption) (*SubstrateConnection, error)
 
 	logger := newPluginLogger(co)
 
-	cmd := exec.Command(co.command) // #nosec G204
+	// The plugin process lives as long as the connection, not a context, and
+	// go-plugin kills it on Kill. G204: the command is the configured plugin.
+	cmd := exec.Command(co.command) //nolint:noctx,gosec // see above
 
 	// We're a host! Start by launching the plugin process.
 	client := plugin.NewClient(&plugin.ClientConfig{

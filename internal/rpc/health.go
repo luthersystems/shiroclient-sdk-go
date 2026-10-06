@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
@@ -77,8 +78,8 @@ func unmarshalHealthResponse(r []byte) (healthcheck, error) {
 	// NOTE: rawResp *does* use json struct deserialization to ease handling of
 	// any exception object which may be passed from upstream.
 	var rawResp struct {
-		Reports   []interface{}
 		Exception *json.RawMessage
+		Reports   []interface{}
 	}
 	err := json.Unmarshal(r, &rawResp)
 	if err != nil {
@@ -100,7 +101,7 @@ func unmarshalHealthResponse(r []byte) (healthcheck, error) {
 func convertHealthReport(rawReport interface{}) (*healthreport, error) {
 	m, ok := rawReport.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("health check report: expected an object")
+		return nil, errors.New("health check report: expected an object")
 	}
 	const errdesc = "health check report"
 	ts, ok := m["timestamp"].(string)
