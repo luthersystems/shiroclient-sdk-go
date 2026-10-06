@@ -48,7 +48,7 @@ golangci-lint run ./... && make work-marker-gate && make test
 
 ## Key Reminders
 
-- CI runs on `ubuntu-latest` with Go 1.25. Ensure your local Go version matches.
+- CI runs on `ubuntu-latest` with the Go version in go.mod. Ensure your local Go version matches.
 - There is no separate format check; formatting issues are caught by golangci-lint.
 - The plugin download (`make plugin`) uses `scripts/obtain-plugin.sh` and requires network access.
 - Plugin version is pinned in `common.config.mk` (`SUBSTRATE_VERSION=v2.240.0`).
