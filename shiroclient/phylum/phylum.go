@@ -320,7 +320,9 @@ func (s *Client) logEntry(ctx context.Context) *logrus.Entry {
 	return s.log.WithFields(s.logFields(ctx))
 }
 
-// HealthCheck performs health check on phylum.
+// GetHealthCheck performs health check on phylum.  Unlike phylum calls it
+// does not add defaultConfigs: those only seed the phylum's CSPRNG, which a
+// gateway health check never reaches.
 func (s *Client) GetHealthCheck(ctx context.Context, services []string, config ...Config) (*healthcheck.GetHealthCheckResponse, error) {
 	resp, err := shiroclient.RemoteHealthCheck(ctx, s.rpc, services, config...)
 	if err != nil {

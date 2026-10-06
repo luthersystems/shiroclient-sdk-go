@@ -383,6 +383,9 @@ func (c *rpcShiroClient) applyConfigs(configs ...types.Config) (*types.RequestOp
 // HealthCheck is not part of the ShiroClient interface but it is recognized by
 // the RemoteHealthCheck function.
 func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, configs ...types.Config) (HealthCheck, error) {
+	ctx, span := c.tracer.Start(ctx, "sdk:HealthCheck")
+	defer span.End()
+
 	// Validate config and transform params
 	opt, err := c.applyConfigs(configs...)
 	if err != nil {
@@ -401,6 +404,8 @@ func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, con
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck request: %w", err)
 	}
+	// if present, propagate trace from context over HTTP headers
+	tracePropagator.Inject(ctx, propagation.HeaderCarrier(hreq.Header))
 
 	body, err := c.doRequest(ctx, opt.HTTPClient, hreq, c.defaultLog)
 	if err != nil {
