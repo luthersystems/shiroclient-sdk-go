@@ -23,6 +23,17 @@ jobs:
         run: golangci-lint config verify
       - name: Run CI tests
         run: make citest
+  # Fails when a tracked file has a work marker that scripts/work-markers.txt
+  # does not allow. Allowlist rules and format are in the header of
+  # scripts/work-markers.txt. Same gate as luthersystems/elps.
+  work-markers:
+    name: Work marker gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Work marker gate
+        run: make work-marker-gate
   # Known-vulnerability gate: call-graph-aware, fails only on vulns whose
   # vulnerable code this module actually reaches.
   govulncheck:

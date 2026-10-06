@@ -131,7 +131,6 @@ func Test001(t *testing.T) {
 			},
 		},
 
-		// TODO: fix this test
 		{
 			"third test - schedule at times other than now",
 			"schedule_request",

@@ -46,6 +46,13 @@ go-test:
 test: go-test
 	@
 
+# Work marker gate: fails on a work marker that scripts/work-markers.txt does
+# not allow. CI runs it, and its self-test, as the `work-markers` job.
+.PHONY: work-marker-gate
+work-marker-gate:
+	bash scripts/work-marker-gate-test.sh
+	bash scripts/work-marker-gate.sh
+
 ${STATIC_PLUGINS_DUMMY}:
 	${MKDIR_P} $(dir $@)
 	./scripts/obtain-plugin.sh

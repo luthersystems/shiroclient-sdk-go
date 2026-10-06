@@ -21,6 +21,15 @@ golangci-lint run ./...
 Rules live in `.golangci.yml` (shared with luthersystems/elps and
 luthersystems/substrate). Use v2.13 locally: findings differ across minors.
 
+### 1b. Work marker gate
+
+```bash
+make work-marker-gate
+```
+
+Fails on an upper-case work marker word that `scripts/work-markers.txt` does
+not allow. Do the work, or open an issue and add a dated entry.
+
 ### 2. Full CI Test Suite
 
 ```bash
@@ -34,7 +43,7 @@ This runs `make plugin` (downloads substrate binary if missing) followed by `mak
 If you've already run `make plugin` in this session:
 
 ```bash
-golangci-lint run ./... && make test
+golangci-lint run ./... && make work-marker-gate && make test
 ```
 
 ## Key Reminders
@@ -47,5 +56,6 @@ golangci-lint run ./... && make test
 ## Checklist
 
 - [ ] `golangci-lint run ./...` passes (matches CI lint step)
+- [ ] `make work-marker-gate` passes
 - [ ] `make citest` passes (matches CI test step)
 - [ ] No untracked generated files left behind
