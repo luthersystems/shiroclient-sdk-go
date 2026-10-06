@@ -111,6 +111,7 @@ type RequestOptions struct {
 	HTTPClient          *http.Client
 	TimestampGenerator  func(context.Context) string
 	Transient           map[string][]byte
+	ResponseReceiver    func(ShiroResponse)
 	ID                  string
 	Endpoint            string
 	NewPhylumVersion    string
@@ -125,7 +126,6 @@ type RequestOptions struct {
 	MinEndorsers        int
 	DisableWritePolling bool
 	CcFetchURLDowngrade bool
-	ResponseReceiver    func(ShiroResponse)
 	DebugPrint          bool
 }
 
@@ -224,9 +224,9 @@ var _ ShiroResponse = (*successResponse)(nil)
 
 type successResponse struct {
 	txID        string
+	result      []byte
 	comBlockNum uint64
 	simBlockNum uint64
-	result      []byte
 }
 
 func NewSuccessResponse(result []byte, txID string, comBlockNum uint64, simBlockNum uint64) *successResponse {

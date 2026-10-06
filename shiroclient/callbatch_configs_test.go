@@ -18,8 +18,8 @@ import (
 // batchRequests returns the "requests" parameter of a recorded CallBatch.
 func batchRequests(t *testing.T, got <-chan map[string]interface{}) ([]interface{}, map[string]interface{}) {
 	t.Helper()
-	params := (<-got)["params"].(map[string]interface{})
-	return params["requests"].([]interface{}), params
+	params := as[map[string]interface{}](t, (<-got)["params"])
+	return as[[]interface{}](t, params["requests"]), params
 }
 
 func TestCallBatchRequestConfigsTransient(t *testing.T) {
@@ -35,11 +35,11 @@ func TestCallBatchRequestConfigsTransient(t *testing.T) {
 	require.NoError(t, err)
 	reqs, params := batchRequests(t, got)
 	assert.Equal(t, map[string]interface{}{"secret": hex.EncodeToString([]byte("alice"))},
-		reqs[0].(map[string]interface{})["transient"])
+		as[map[string]interface{}](t, reqs[0])["transient"])
 	assert.Equal(t, map[string]interface{}{
 		"secret": hex.EncodeToString([]byte("bob")),
 		"note":   hex.EncodeToString([]byte("n")),
-	}, reqs[1].(map[string]interface{})["transient"], "each request carries only its own transient data")
+	}, as[map[string]interface{}](t, reqs[1])["transient"], "each request carries only its own transient data")
 	assert.Equal(t, map[string]interface{}{}, params["transient"], "nothing is shared")
 }
 
@@ -55,8 +55,8 @@ func TestCallBatchRequestConfigsLaterWins(t *testing.T) {
 	require.NoError(t, err)
 	reqs, _ := batchRequests(t, got)
 	assert.Equal(t, map[string]interface{}{"k": hex.EncodeToString([]byte("second"))},
-		reqs[0].(map[string]interface{})["transient"], "configs apply in order, as for Call")
-	assert.NotContains(t, reqs[1].(map[string]interface{}), "transient", "a no-op config sends no transient field")
+		as[map[string]interface{}](t, reqs[0])["transient"], "configs apply in order, as for Call")
+	assert.NotContains(t, as[map[string]interface{}](t, reqs[1]), "transient", "a no-op config sends no transient field")
 }
 
 // TestCallBatchRequestConfigsRefused pins every Call config that cannot apply

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -105,7 +104,7 @@ func TestCallBatchCommitted(t *testing.T) {
 	req := <-got
 	assert.Equal(t, "2.0", req["jsonrpc"])
 	assert.Equal(t, "CallBatch", req["method"])
-	params := req["params"].(map[string]interface{})
+	params := as[map[string]interface{}](t, req["params"])
 	assert.Equal(t, []interface{}{
 		map[string]interface{}{"method": "put", "params": []interface{}{"a", "1"}, "id": "r1"},
 		// A missing id is left to the server (it uses the index); missing
@@ -136,7 +135,7 @@ func TestCallBatchFailureCommitsNothing(t *testing.T) {
 	require.Error(t, err)
 
 	var batchErr *shiroclient.CallBatchError
-	require.True(t, errors.As(err, &batchErr), "got %T: %v", err, err)
+	require.ErrorAs(t, err, &batchErr, "got %T: %v", err, err)
 	assert.Equal(t, 1, batchErr.Index)
 	assert.Equal(t, "f", batchErr.ID)
 	require.NotNil(t, batchErr.Err)
@@ -145,9 +144,9 @@ func TestCallBatchFailureCommitsNothing(t *testing.T) {
 	assert.JSONEq(t, `"nope"`, string(batchErr.Err.DataJSON()))
 	assert.Contains(t, err.Error(), "batch not committed")
 	assert.Contains(t, err.Error(), "request 1")
-	assert.True(t, errors.As(fmt.Errorf("wrapped: %w", err), &batchErr))
-	assert.False(t, errors.Is(err, shiroclient.ErrOutcomeUnknown))
-	assert.False(t, errors.Is(err, shiroclient.ErrCallBatchNotSupported))
+	require.ErrorAs(t, fmt.Errorf("wrapped: %w", err), &batchErr)
+	require.NotErrorIs(t, err, shiroclient.ErrOutcomeUnknown)
+	require.NotErrorIs(t, err, shiroclient.ErrCallBatchNotSupported)
 
 	// The per-request results are still returned, so a caller can see why.
 	require.NotNil(t, resp)
@@ -183,13 +182,13 @@ func TestCallBatchOutcomeUnknown(t *testing.T) {
 		[]shiroclient.CallBatchRequest{{Method: "put"}, {Method: "put"}})
 	require.Error(t, err)
 	assert.Nil(t, resp)
-	assert.True(t, errors.Is(err, shiroclient.ErrOutcomeUnknown))
+	require.ErrorIs(t, err, shiroclient.ErrOutcomeUnknown)
 	assert.True(t, shiroclient.IsTimeoutError(err))
 	txID, ok := shiroclient.OutcomeUnknownTxID(err)
 	assert.True(t, ok)
 	assert.Equal(t, "tx-amb", txID)
 	var batchErr *shiroclient.CallBatchError
-	assert.False(t, errors.As(err, &batchErr), "an unknown outcome is not a known failure")
+	assert.NotErrorAs(t, err, &batchErr, "an unknown outcome is not a known failure")
 }
 
 func TestCallBatchOldGateway(t *testing.T) {
@@ -198,7 +197,7 @@ func TestCallBatchOldGateway(t *testing.T) {
 		[]shiroclient.CallBatchRequest{{Method: "put"}})
 	require.Error(t, err)
 	assert.Nil(t, resp)
-	assert.True(t, errors.Is(err, shiroclient.ErrCallBatchNotSupported), "got %v", err)
+	require.ErrorIs(t, err, shiroclient.ErrCallBatchNotSupported, "got %v", err)
 	assert.Equal(t, int32(1), atomic.LoadInt32(hits), "the batch is not retried as single calls")
 }
 
@@ -207,7 +206,7 @@ func TestCallBatchOtherJSONRPCError(t *testing.T) {
 	_, err := shiroclient.CallBatch(context.Background(), client,
 		[]shiroclient.CallBatchRequest{{Method: "put"}})
 	require.Error(t, err)
-	assert.False(t, errors.Is(err, shiroclient.ErrCallBatchNotSupported))
+	require.NotErrorIs(t, err, shiroclient.ErrCallBatchNotSupported)
 	assert.Contains(t, err.Error(), "invalid params")
 }
 
@@ -232,7 +231,7 @@ func TestCallBatchForwardsOptions(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	params := (<-got)["params"].(map[string]interface{})
+	params := as[map[string]interface{}](t, (<-got)["params"])
 	assert.Equal(t, []interface{}{"peer-restoring"}, params["not_target_endpoints"])
 	assert.Equal(t, []interface{}{"peer0"}, params["target_endpoints"])
 	assert.Equal(t, []interface{}{"Org1MSP"}, params["msp_filter"])
@@ -274,7 +273,7 @@ type plainClient struct{ shiroclient.ShiroClient }
 func TestCallBatchClientWithoutSupport(t *testing.T) {
 	_, err := shiroclient.CallBatch(context.Background(), plainClient{},
 		[]shiroclient.CallBatchRequest{{Method: "put"}})
-	require.True(t, errors.Is(err, shiroclient.ErrCallBatchNotSupported), "got %v", err)
+	require.ErrorIs(t, err, shiroclient.ErrCallBatchNotSupported, "got %v", err)
 }
 
 func readTestKey(t *testing.T, client shiroclient.ShiroClient) string {
@@ -322,7 +321,7 @@ func TestCallBatchMock(t *testing.T) {
 		})
 		require.Error(t, err)
 		var batchErr *shiroclient.CallBatchError
-		require.True(t, errors.As(err, &batchErr), "got %v", err)
+		require.ErrorAs(t, err, &batchErr, "got %v", err)
 		assert.Equal(t, 1, batchErr.Index)
 		require.NotNil(t, resp)
 		assert.False(t, resp.Committed)
@@ -350,7 +349,7 @@ func TestCallBatchMock(t *testing.T) {
 		})
 		require.Error(t, err)
 		var batchErr *shiroclient.CallBatchError
-		require.True(t, errors.As(err, &batchErr), "got %v", err)
+		require.ErrorAs(t, err, &batchErr, "got %v", err)
 		assert.Equal(t, 1, batchErr.Index)
 		require.NotNil(t, batchErr.Err)
 		assert.Equal(t, shiroclient.CodeForcedNoCommit, batchErr.Err.Code())
@@ -376,8 +375,8 @@ func TestCallBatchTimeoutWithoutOutcomeData(t *testing.T) {
 	// Never presented as a known, retry-safe failure.
 	assert.Nil(t, resp, "no response claims the batch was not committed")
 	var batchErr *shiroclient.CallBatchError
-	assert.False(t, errors.As(err, &batchErr))
-	assert.False(t, errors.Is(err, shiroclient.ErrCallBatchNotSupported))
+	assert.NotErrorAs(t, err, &batchErr)
+	require.NotErrorIs(t, err, shiroclient.ErrCallBatchNotSupported)
 	_, ok := shiroclient.OutcomeUnknownTxID(err)
 	assert.False(t, ok, "without #515 the gateway sends no tx id")
 }
@@ -397,11 +396,11 @@ func TestCallBatchNilParamsSentAsEmptyArray(t *testing.T) {
 		{Method: "d", Params: &obj{K: "v"}},
 	})
 	require.NoError(t, err)
-	reqs := (<-got)["params"].(map[string]interface{})["requests"].([]interface{})
+	reqs := as[[]interface{}](t, as[map[string]interface{}](t, (<-got)["params"])["requests"])
 	for i, want := range []interface{}{
 		[]interface{}{}, []interface{}{}, []interface{}{}, map[string]interface{}{"K": "v"},
 	} {
-		assert.Equal(t, want, reqs[i].(map[string]interface{})["params"], "request %d", i)
+		assert.Equal(t, want, as[map[string]interface{}](t, reqs[i])["params"], "request %d", i)
 	}
 }
 
@@ -478,7 +477,7 @@ func TestCallBatchContradictoryResponse(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	var batchErr *shiroclient.CallBatchError
-	assert.False(t, errors.As(err, &batchErr), "not reported as a known uncommitted failure")
+	assert.NotErrorAs(t, err, &batchErr, "not reported as a known uncommitted failure")
 	assert.Empty(t, txctx.GetTransactionDetails(ctx).TransactionID, "txctx is stamped only after every check passes")
 	assert.Zero(t, received)
 }
@@ -521,11 +520,11 @@ func TestCallBatchPerRequestTransient(t *testing.T) {
 		{Method: "deposit", Configs: []shiroclient.Config{shiroclient.WithTransientData("secret", []byte("bob"))}},
 	})
 	require.NoError(t, err)
-	params := (<-got)["params"].(map[string]interface{})
-	reqs := params["requests"].([]interface{})
+	params := as[map[string]interface{}](t, (<-got)["params"])
+	reqs := as[[]interface{}](t, params["requests"])
 	for i, want := range []string{"alice", "bob"} {
 		assert.Equal(t, map[string]interface{}{"secret": hex.EncodeToString([]byte(want))},
-			reqs[i].(map[string]interface{})["transient"], "request %d has its own value for the same key", i)
+			as[map[string]interface{}](t, reqs[i])["transient"], "request %d has its own value for the same key", i)
 	}
 	assert.Equal(t, map[string]interface{}{}, params["transient"], "nothing is shared")
 }
@@ -537,12 +536,12 @@ func TestCallBatchSharedAndPerRequestTransient(t *testing.T) {
 		{Method: "b", Configs: []shiroclient.Config{shiroclient.WithTransientDataMap(map[string][]byte{})}},
 	}, shiroclient.WithTransientData("traceparent", []byte("both")))
 	require.NoError(t, err)
-	params := (<-got)["params"].(map[string]interface{})
+	params := as[map[string]interface{}](t, (<-got)["params"])
 	assert.Equal(t, map[string]interface{}{"traceparent": hex.EncodeToString([]byte("both"))}, params["transient"])
-	reqs := params["requests"].([]interface{})
+	reqs := as[[]interface{}](t, params["requests"])
 	assert.Equal(t, map[string]interface{}{"secret": hex.EncodeToString([]byte("own"))},
-		reqs[0].(map[string]interface{})["transient"])
-	assert.NotContains(t, reqs[1].(map[string]interface{}), "transient", "an empty map sends no transient field")
+		as[map[string]interface{}](t, reqs[0])["transient"])
+	assert.NotContains(t, as[map[string]interface{}](t, reqs[1]), "transient", "an empty map sends no transient field")
 }
 
 func TestCallBatchTransientOmittedWhenNil(t *testing.T) {
@@ -550,8 +549,8 @@ func TestCallBatchTransientOmittedWhenNil(t *testing.T) {
 	_, err := shiroclient.CallBatch(context.Background(), client,
 		[]shiroclient.CallBatchRequest{{Method: "a"}, {Method: "b"}})
 	require.NoError(t, err)
-	for i, r := range (<-got)["params"].(map[string]interface{})["requests"].([]interface{}) {
-		assert.NotContains(t, r.(map[string]interface{}), "transient", "request %d", i)
+	for i, r := range as[[]interface{}](t, as[map[string]interface{}](t, (<-got)["params"])["requests"]) {
+		assert.NotContains(t, as[map[string]interface{}](t, r), "transient", "request %d", i)
 	}
 }
 
@@ -607,7 +606,7 @@ func TestCallBatchForcedNoCommitFailsBatch(t *testing.T) {
 		{Method: "private_decode", ID: "d"},
 	})
 	var batchErr *shiroclient.CallBatchError
-	require.True(t, errors.As(err, &batchErr), "got %T: %v", err, err)
+	require.ErrorAs(t, err, &batchErr, "got %T: %v", err, err)
 	assert.Equal(t, 1, batchErr.Index)
 	assert.Equal(t, "d", batchErr.ID)
 	assert.Equal(t, shiroclient.CodeForcedNoCommit, batchErr.Err.Code())

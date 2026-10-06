@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"github.com/luthersystems/shiroclient-sdk-go/internal/mockint"
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,29 +41,60 @@ func requirePlugin(t testing.TB) {
 
 func newTestMock(t testing.TB, opts ...mock.Option) *mockShiroClient {
 	t.Helper()
+	mc, err := tryNewTestMock(opts...)
+	require.NoError(t, err)
+	return mc
+}
+
+// tryNewTestMock is newTestMock for a goroutine other than the test's own,
+// where require must not be used: it returns the error instead.
+func tryNewTestMock(opts ...mock.Option) (*mockShiroClient, error) {
 	opts = append([]mock.Option{mock.WithLogWriter(io.Discard), mock.WithLogLevel(mock.Error)}, opts...)
 	c, err := NewMock(nil, opts...)
-	require.NoError(t, err)
-	mc := c.(*mockShiroClient)
-	return mc
+	if err != nil {
+		return nil, err
+	}
+	mc, ok := c.(*mockShiroClient)
+	if !ok {
+		return nil, fmt.Errorf("NewMock returned %T", c)
+	}
+	return mc, nil
 }
 
 func initMock(t testing.TB, c types.ShiroClient) {
 	t.Helper()
-	require.NoError(t, c.Init(context.Background(), base64.StdEncoding.EncodeToString(sharedTestPhylum)))
+	require.NoError(t, tryInitMock(c))
+}
+
+// tryInitMock is initMock for a goroutine other than the test's own.
+func tryInitMock(c types.ShiroClient) error {
+	return c.Init(context.Background(), base64.StdEncoding.EncodeToString(sharedTestPhylum))
 }
 
 func callMock(t testing.TB, c types.ShiroClient, method string, params interface{}) string {
 	t.Helper()
+	out, err := tryCallMock(c, method, params)
+	require.NoError(t, err)
+	return out
+}
+
+// tryCallMock is callMock for a goroutine other than the test's own.
+func tryCallMock(c types.ShiroClient, method string, params interface{}) (string, error) {
 	opt := types.Opt(func(r *types.RequestOptions) { r.Params = params })
 	resp, err := c.Call(context.Background(), method, opt)
-	require.NoError(t, err)
-	require.Nil(t, resp.Error())
+	if err != nil {
+		return "", err
+	}
+	if rerr := resp.Error(); rerr != nil {
+		return "", fmt.Errorf("%s: phylum error: %s", method, rerr.Message())
+	}
 	var out string
 	if len(resp.ResultJSON()) > 0 && string(resp.ResultJSON()) != "null" {
-		require.NoError(t, json.Unmarshal(resp.ResultJSON(), &out))
+		if err := json.Unmarshal(resp.ResultJSON(), &out); err != nil {
+			return "", err
+		}
 	}
-	return out
+	return out, nil
 }
 
 func processAlive(pid int) bool {
@@ -180,22 +213,36 @@ func TestSharedPlugin_Concurrent(t *testing.T) {
 	const n = 8
 	var wg sync.WaitGroup
 	pids := make([]int, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			c := newTestMock(t, mock.WithSharedPlugin())
-			defer func() { require.NoError(t, c.Close()) }()
+			c, err := tryNewTestMock(mock.WithSharedPlugin())
+			if !assert.NoError(t, err) {
+				return
+			}
+			defer func() { assert.NoError(t, c.Close()) }()
 			pids[i] = c.conn.Pid()
-			initMock(t, c)
+			if !assert.NoError(t, tryInitMock(c)) {
+				return
+			}
 			v := fmt.Sprintf("value-%d", i)
-			for j := 0; j < 3; j++ {
-				callMock(t, c, "write", []interface{}{v})
-				require.Equal(t, v, callMock(t, c, "read", nil))
+			for range 3 {
+				_, err := tryCallMock(c, "write", []interface{}{v})
+				if !assert.NoError(t, err) {
+					return
+				}
+				got, err := tryCallMock(c, "read", nil)
+				if !assert.NoError(t, err) || !assert.Equal(t, v, got) {
+					return
+				}
 			}
 		}(i)
 	}
 	wg.Wait()
+	if t.Failed() {
+		return
+	}
 	for _, p := range pids {
 		require.Equal(t, pids[0], p)
 	}
@@ -274,16 +321,21 @@ func BenchmarkRestoreCycle(b *testing.B) {
 				}
 			}
 			var wg sync.WaitGroup
-			for w := 0; w < mode.workers; w++ {
+			for w := range mode.workers {
 				wg.Add(1)
 				go func(w int) {
 					defer wg.Done()
 					for i := w; i < b.N; i += mode.workers {
-						c := newTestMock(b, restoreOpts(mode.opts)...)
-						if got := callMock(b, c, "read", nil); got != "seed" {
-							b.Errorf("read %q", got)
+						c, err := tryNewTestMock(restoreOpts(mode.opts)...)
+						if !assert.NoError(b, err) {
+							return
 						}
-						require.NoError(b, c.Close())
+						if got, err := tryCallMock(c, "read", nil); err != nil || got != "seed" {
+							b.Errorf("read %q: %v", got, err)
+						}
+						if !assert.NoError(b, c.Close()) {
+							return
+						}
 					}
 				}(w)
 			}
@@ -314,7 +366,7 @@ func childPIDs() []string {
 	tasks, _ := filepath.Glob("/proc/self/task/*/children")
 	var out []string
 	for _, t := range tasks {
-		b, err := os.ReadFile(t)
+		b, err := os.ReadFile(t) //nolint:gosec // G304: a /proc/self/task path from Glob, not user input.
 		if err == nil {
 			out = append(out, strings.Fields(string(b))...)
 		}
@@ -330,7 +382,7 @@ func waitChildrenReaped() {
 }
 
 func rssOf(pid string) int64 {
-	b, err := os.ReadFile("/proc/" + pid + "/status")
+	b, err := os.ReadFile("/proc/" + pid + "/status") //nolint:gosec // G304: a /proc status path for a child PID.
 	if err != nil {
 		return 0
 	}
@@ -388,47 +440,106 @@ func TestSharedPlugin_Stress(t *testing.T) {
 
 	const n = 32
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			c := newTestMock(t, mock.WithSharedPlugin())
-			defer func() { require.NoError(t, c.Close()) }()
-			initMock(t, c)
-			for j := 0; j < 4; j++ {
-				v := fmt.Sprintf("value-%d-%d", i, j)
-				callMock(t, c, "write", []interface{}{v})
-				require.Equal(t, v, callMock(t, c, "read", nil))
-				if j%2 == 1 {
-					var snap bytes.Buffer
-					require.NoError(t, c.Snapshot(&snap))
-					r := newTestMock(t, mock.WithSharedPlugin(), mock.WithSnapshotReader(&snap))
-					require.Equal(t, v, callMock(t, r, "read", nil))
-					callMock(t, r, "write", []interface{}{"restored"})
-					require.Equal(t, v, callMock(t, c, "read", nil))
-					require.NoError(t, r.Close())
-				}
+			if err := stressOne(i); err != nil {
+				t.Errorf("mock %d: %v", i, err)
 			}
 		}(i)
 	}
 	wg.Wait()
+	if t.Failed() {
+		return
+	}
 
 	// Close of the last mock (idle timeout 0 stops the process) racing a
 	// new mock's startup on the same pool key.
-	for k := 0; k < 8; k++ {
+	for range 8 {
 		old := newTestMock(t, mock.WithSharedPlugin(), mock.WithSharedPluginIdleTimeout(0))
 		var cwg sync.WaitGroup
 		cwg.Add(2)
-		go func() { defer cwg.Done(); require.NoError(t, old.Close()) }()
+		var closeErr, freshErr error
+		go func() { defer cwg.Done(); closeErr = old.Close() }()
 		var fresh *mockShiroClient
 		go func() {
 			defer cwg.Done()
-			fresh = newTestMock(t, mock.WithSharedPlugin(), mock.WithSharedPluginIdleTimeout(0))
+			fresh, freshErr = tryNewTestMock(mock.WithSharedPlugin(), mock.WithSharedPluginIdleTimeout(0))
 		}()
 		cwg.Wait()
+		require.NoError(t, closeErr)
+		require.NoError(t, freshErr)
 		initMock(t, fresh)
 		callMock(t, fresh, "write", []interface{}{"fresh"})
 		require.Equal(t, "fresh", callMock(t, fresh, "read", nil))
 		require.NoError(t, fresh.Close())
 	}
+}
+
+// stressOne is one TestSharedPlugin_Stress worker. It runs in its own
+// goroutine, so it and its helpers return an error instead of using require.
+func stressOne(i int) error {
+	c, err := tryNewTestMock(mock.WithSharedPlugin())
+	if err != nil {
+		return err
+	}
+	runErr := stressRounds(c, i)
+	closeErr := c.Close()
+	return errors.Join(runErr, closeErr)
+}
+
+func stressRounds(c *mockShiroClient, i int) error {
+	if err := tryInitMock(c); err != nil {
+		return err
+	}
+	for j := range 4 {
+		v := fmt.Sprintf("value-%d-%d", i, j)
+		if _, err := tryCallMock(c, "write", []interface{}{v}); err != nil {
+			return err
+		}
+		if err := expectRead(c, v); err != nil {
+			return err
+		}
+		if j%2 == 1 {
+			if err := stressRestore(c, v); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// stressRestore restores a snapshot of c into a new mock r, checks r reads
+// v, and checks a write to r does not reach c.
+func stressRestore(c *mockShiroClient, v string) error {
+	var snap bytes.Buffer
+	if err := c.Snapshot(&snap); err != nil {
+		return err
+	}
+	r, err := tryNewTestMock(mock.WithSharedPlugin(), mock.WithSnapshotReader(&snap))
+	if err != nil {
+		return err
+	}
+	runErr := func() error {
+		if err := expectRead(r, v); err != nil {
+			return fmt.Errorf("restored mock: %w", err)
+		}
+		if _, err := tryCallMock(r, "write", []interface{}{"restored"}); err != nil {
+			return err
+		}
+		return expectRead(c, v)
+	}()
+	return errors.Join(runErr, r.Close())
+}
+
+func expectRead(c types.ShiroClient, want string) error {
+	got, err := tryCallMock(c, "read", nil)
+	if err != nil {
+		return err
+	}
+	if got != want {
+		return fmt.Errorf("read %q, want %q", got, want)
+	}
+	return nil
 }

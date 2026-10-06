@@ -134,7 +134,7 @@ func TestPluginBatchError(t *testing.T) {
 	_, err := client.CallBatch("tag", []BatchRequestArgs{{Method: "a"}}, &ConcreteRequestOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "mock tag not found")
-	assert.False(t, errors.Is(err, ErrBatchNotSupported))
+	assert.NotErrorIs(t, err, ErrBatchNotSupported)
 }
 
 func TestPluginBatchNotSupported(t *testing.T) {
@@ -147,9 +147,9 @@ func TestPluginBatchNotSupported(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			client := pipeClient(t, rcvr)
 			_, err := client.CallBatch("tag", []BatchRequestArgs{{Method: "a"}}, &ConcreteRequestOptions{})
-			require.True(t, errors.Is(err, ErrBatchNotSupported), "CallBatch: got %v", err)
+			require.ErrorIs(t, err, ErrBatchNotSupported, "CallBatch: got %v", err)
 			_, err = client.QueryBatch("tag", []BatchRequestArgs{{Method: "a"}}, &ConcreteRequestOptions{})
-			require.True(t, errors.Is(err, ErrBatchNotSupported), "QueryBatch: got %v", err)
+			require.ErrorIs(t, err, ErrBatchNotSupported, "QueryBatch: got %v", err)
 		})
 	}
 }

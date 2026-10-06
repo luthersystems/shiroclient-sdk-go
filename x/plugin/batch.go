@@ -40,6 +40,9 @@ type BatchSubstrate interface {
 
 // BatchRequestArgs is one request of a batch.
 type BatchRequestArgs struct {
+	// Transient is transient data for this request only.  Its keys are
+	// non-empty, never transaction-wide and never start with "$batch/".
+	Transient map[string][]byte
 	// Method is the phylum endpoint to call.
 	Method string
 	// Params is the request's JSON-encoded parameters: an array or an
@@ -48,20 +51,17 @@ type BatchRequestArgs struct {
 	// ID is the request's JSON-encoded JSON-RPC id (a string or a number),
 	// or nil to use the request's index in the batch.
 	ID []byte
-	// Transient is transient data for this request only.  Its keys are
-	// non-empty, never transaction-wide and never start with "$batch/".
-	Transient map[string][]byte
 }
 
 // BatchResponse is the result of a batch.
 type BatchResponse struct {
+	// TransactionID is the committed transaction's ID; empty when the batch
+	// was not committed, and always for a QueryBatch.
+	TransactionID string
 	// Responses holds one response per request, in request order.
 	Responses []*Response
 	// IDs holds each response's JSON-encoded JSON-RPC id.
 	IDs [][]byte
-	// TransactionID is the committed transaction's ID; empty when the batch
-	// was not committed, and always for a QueryBatch.
-	TransactionID string
 	// FailedIndex is the index of the request that failed the batch, or -1.
 	FailedIndex int
 	// Committed reports whether the batch was committed: it wrote state and
@@ -71,9 +71,9 @@ type BatchResponse struct {
 
 // ArgsCallBatch encodes the arguments to CallBatch
 type ArgsCallBatch struct {
+	Options  *ConcreteRequestOptions
 	Tag      string
 	Requests []BatchRequestArgs
-	Options  *ConcreteRequestOptions
 }
 
 // RespCallBatch encodes the response from CallBatch
@@ -86,9 +86,9 @@ type RespCallBatch struct {
 
 // ArgsQueryBatch encodes the arguments to QueryBatch
 type ArgsQueryBatch struct {
+	Options  *ConcreteRequestOptions
 	Tag      string
 	Requests []BatchRequestArgs
-	Options  *ConcreteRequestOptions
 }
 
 // RespQueryBatch encodes the response from QueryBatch
@@ -148,23 +148,27 @@ func (g *PluginRPC) QueryBatch(tag string, requests []BatchRequestArgs, options 
 	return resp.Response, nil
 }
 
-// batch runs fn against the implementation's BatchSubstrate, reporting
-// "not supported" when there is none or fn says so.
-func (s *PluginRPCServer) batch(fn func(BatchSubstrate) (*BatchResponse, error)) (*BatchResponse, *Error, bool) {
+// batch runs fn against the implementation's BatchSubstrate and returns the
+// reply (a RespQueryBatch converts from it), reporting "not supported" when
+// there is none or fn says so.
+func (s *PluginRPCServer) batch(fn func(BatchSubstrate) (*BatchResponse, error)) RespCallBatch {
 	bs, ok := s.Impl.(BatchSubstrate)
 	if !ok {
-		return nil, &Error{Diagnostic: fmt.Sprintf("%T does not implement plugin.BatchSubstrate", s.Impl)}, true
+		return RespCallBatch{
+			Err:          &Error{Diagnostic: fmt.Sprintf("%T does not implement plugin.BatchSubstrate", s.Impl)},
+			NotSupported: true,
+		}
 	}
 	res, err := fn(bs)
 	if err != nil {
-		return nil, s.newError(err), errors.Is(err, ErrBatchNotSupported)
+		return RespCallBatch{Err: s.newError(err), NotSupported: errors.Is(err, ErrBatchNotSupported)}
 	}
-	return res, nil, false
+	return RespCallBatch{Response: res}
 }
 
 // CallBatch forwards the call
 func (s *PluginRPCServer) CallBatch(args *ArgsCallBatch, resp *RespCallBatch) error {
-	resp.Response, resp.Err, resp.NotSupported = s.batch(func(bs BatchSubstrate) (*BatchResponse, error) {
+	*resp = s.batch(func(bs BatchSubstrate) (*BatchResponse, error) {
 		return bs.CallBatch(args.Tag, args.Requests, args.Options)
 	})
 	return nil
@@ -172,8 +176,8 @@ func (s *PluginRPCServer) CallBatch(args *ArgsCallBatch, resp *RespCallBatch) er
 
 // QueryBatch forwards the call
 func (s *PluginRPCServer) QueryBatch(args *ArgsQueryBatch, resp *RespQueryBatch) error {
-	resp.Response, resp.Err, resp.NotSupported = s.batch(func(bs BatchSubstrate) (*BatchResponse, error) {
+	*resp = RespQueryBatch(s.batch(func(bs BatchSubstrate) (*BatchResponse, error) {
 		return bs.QueryBatch(args.Tag, args.Requests, args.Options)
-	})
+	}))
 	return nil
 }

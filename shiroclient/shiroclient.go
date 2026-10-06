@@ -72,9 +72,9 @@ var ErrOutcomeUnknown = rpc.ErrOutcomeUnknown
 
 // OutcomeUnknownTxID returns the transaction ID for an ambiguous outcome, including
 // through wrapped errors. The transaction may still commit; check the ledger for
-// TxID before retrying. The ID may be empty even when ok is true. Old servers never
+// TxID before retrying. The ID may be empty even when the bool is true. Old servers never
 // produce this state.
-func OutcomeUnknownTxID(err error) (txID string, ok bool) {
+func OutcomeUnknownTxID(err error) (string, bool) {
 	return rpc.OutcomeUnknownTxID(err)
 }
 
@@ -221,8 +221,8 @@ const CodeForcedNoCommit = types.CodeForcedNoCommit
 
 // CallBatchAborted reports whether err is the error given to a request of a
 // batch that did not fail itself but was not committed because another
-// request failed.  failedID is the id of the request that failed.
-func CallBatchAborted(err Error) (failedID interface{}, ok bool) {
+// request failed.  The first result is the id of the request that failed.
+func CallBatchAborted(err Error) (interface{}, bool) {
 	return types.CallBatchAborted(err)
 }
 

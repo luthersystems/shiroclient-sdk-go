@@ -54,8 +54,8 @@ func (e *outcomeUnknownStatusError) Unwrap() error {
 // AmbiguousTxID returns the transaction ID for an outcome-unknown error, including
 // wrapped errors and gRPC status details received across a gRPC boundary. The
 // transaction may still commit; check the ledger for the ID before retrying.
-// The ID may be empty even when ok is true. Old servers never report this state.
-func AmbiguousTxID(err error) (txID string, ok bool) {
+// The ID may be empty even when the bool is true. Old servers never report this state.
+func AmbiguousTxID(err error) (string, bool) {
 	if txID, ok := shiroclient.OutcomeUnknownTxID(err); ok {
 		return txID, true
 	}
@@ -80,14 +80,15 @@ var defaultConfigs = []func() (Config, error){
 	private.WithSeed,
 }
 
-func joinConfig(base []func() (Config, error), add []Config) (conf []Config, err error) {
+func joinConfig(base []func() (Config, error), add []Config) ([]Config, error) {
 	nbase := len(base)
-	conf = make([]Config, nbase+len(add))
-	for i := range defaultConfigs {
-		conf[i], err = defaultConfigs[i]()
+	conf := make([]Config, nbase+len(add))
+	for i := range base {
+		c, err := base[i]()
 		if err != nil {
 			return nil, fmt.Errorf("default shiroclient config %d: %w", i, err)
 		}
+		conf[i] = c
 	}
 	copy(conf[nbase:], add)
 	return conf, nil
@@ -186,13 +187,14 @@ func newMockFrom(phylumPath string, log *logrus.Entry, r io.Reader, cfgPath stri
 	if cfgPath != "" {
 		// IMPORTANT: set the bootstrap *before* calling init, since the
 		// user init function likely will use bootstrap data.
-		jsonCfgBytes, err := yaml2json.JSONFromYAMLFile(cfgPath)
+		var jsonCfgBytes []byte
+		jsonCfgBytes, err = yaml2json.JSONFromYAMLFile(cfgPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert YAML to JSON: %w", err)
 		}
 
 		// Call the phylum method to apply the bootstrap configuration.
-		if err := client.SetAppControlProperty(ctx, BootstrapProperty, string(jsonCfgBytes)); err != nil {
+		if err = client.SetAppControlProperty(ctx, BootstrapProperty, string(jsonCfgBytes)); err != nil {
 			return nil, fmt.Errorf("failed to apply bootstrap config: %w", err)
 		}
 	}
@@ -205,14 +207,65 @@ func newMockFrom(phylumPath string, log *logrus.Entry, r io.Reader, cfgPath stri
 	return client, nil
 }
 
-// shiroCall is a helper to make RPC calls.
-func (s *Client) sdkCall(ctx context.Context, cmd string, params interface{}, rep proto.Message, clientConfigs []Config) error {
+// Error is the error a Client call returns when the phylum answers with a
+// JSON-RPC error.  Error() is safe to show on a frontend: the error data when
+// it is a JSON string (as a `route-failure` with a string message sends), and
+// otherwise "unknown phylum error", so that structured data never leaks.  Go
+// callers read the JSON-RPC code and the raw data with errors.As.
+type Error struct {
+	message  string
+	dataJSON []byte
+	code     int
+}
+
+// newPhylumError builds the Error for a phylum's JSON-RPC error.
+func newPhylumError(e shiroclient.Error) *Error {
+	perr := &Error{
+		message:  "unknown phylum error",
+		dataJSON: e.DataJSON(),
+		code:     e.Code(),
+	}
+	// Bubble up a string message that can be displayed on the frontend.
+	// Anything else (an object, null) stays masked to avoid leaking
+	// sensitive or confusing objects to the frontend.
+	var errMsg *string
+	if json.Unmarshal(perr.dataJSON, &errMsg) == nil && errMsg != nil {
+		perr.message = *errMsg
+	}
+	return perr
+}
+
+// Error implements error.  It is the masked message described on Error.
+func (e *Error) Error() string {
+	return e.message
+}
+
+// Code is the JSON-RPC error code the phylum returned.
+func (e *Error) Code() int {
+	return e.code
+}
+
+// DataJSON is the JSON-RPC error data the phylum returned, unmasked.  It may
+// contain PII: do not log it or send it to a frontend.
+func (e *Error) DataJSON() []byte {
+	return e.dataJSON
+}
+
+// sdkRequest is a phylum endpoint and the params sdkCall sends it.
+type sdkRequest struct {
+	params interface{}
+	cmd    string
+}
+
+// sdkCall is a helper to make RPC calls.
+func (s *Client) sdkCall(ctx context.Context, req sdkRequest, rep proto.Message, clientConfigs []Config) error {
+	cmd := req.cmd
 	clientConfigs, err := joinConfig(defaultConfigs, clientConfigs)
 	if err != nil {
 		return err
 	}
 	configs := make([]Config, 0, len(clientConfigs)+2)
-	configs = append(configs, shiroclient.WithParams(params))
+	configs = append(configs, shiroclient.WithParams(req.params))
 	configs = append(configs, clientConfigs...)
 	resp, err := s.rpc.Call(ctx, cmd, configs...)
 	if err != nil {
@@ -250,21 +303,7 @@ func (s *Client) sdkCall(ctx context.Context, cmd string, params interface{}, re
 			//"jsonrpc_data":    string(jsonResp),
 			"jsonrpc_message": e.Message(),
 		}).Errorf("json-rpc error received from phylum")
-		// Attempt to extract an error message string in the JSON
-		// response, and bubble up an error that can be displayed on the
-		// frontend. This allows `route-failure` string responses to be
-		// displayed on the frontend.
-		if ejs := e.DataJSON(); ejs != nil {
-			var errMsg string
-			err := json.Unmarshal(ejs, &errMsg)
-			if err == nil {
-				return errors.New(errMsg)
-			}
-		}
-		// The error data wasn't a JSON string message, revert to a masked
-		// error to avoid potentially leaking senstive/confusing objects to the
-		// frontend.
-		return fmt.Errorf("unknown phylum error")
+		return newPhylumError(e)
 	}
 	if rep == nil || len(resp.ResultJSON()) == 0 || string(resp.ResultJSON()) == "null" {
 		// nothing to unmarshal
@@ -288,7 +327,7 @@ func (s *Client) sdkCall(ctx context.Context, cmd string, params interface{}, re
 func (s *Client) MockSnapshot(w io.Writer) error {
 	mock, ok := s.rpc.(shiroclient.MockShiroClient)
 	if !ok {
-		return fmt.Errorf("client rpc does not not support snapshots")
+		return errors.New("client rpc does not not support snapshots")
 	}
 	return mock.Snapshot(w)
 }
@@ -312,7 +351,9 @@ func (s *Client) logEntry(ctx context.Context) *logrus.Entry {
 	return s.log.WithFields(s.logFields(ctx))
 }
 
-// HealthCheck performs health check on phylum.
+// GetHealthCheck performs health check on phylum.  Unlike phylum calls it
+// does not add defaultConfigs: those only seed the phylum's CSPRNG, which a
+// gateway health check never reaches.
 func (s *Client) GetHealthCheck(ctx context.Context, services []string, config ...Config) (*healthcheck.GetHealthCheckResponse, error) {
 	resp, err := shiroclient.RemoteHealthCheck(ctx, s.rpc, services, config...)
 	if err != nil {
@@ -342,8 +383,8 @@ func convertHealthReport(report shiroclient.HealthCheckReport) *healthcheck.Heal
 }
 
 // Call sends requests to the phlyum, and returns a response.
-func Call[K proto.Message, R proto.Message](s *Client, ctx context.Context, methodName string, req K, resp R, config ...Config) (R, error) {
-	err := s.sdkCall(ctx, methodName, cmdParams(req), resp, config)
+func Call[K proto.Message, R proto.Message](s *Client, ctx context.Context, methodName string, req K, resp R, config ...Config) (R, error) { //nolint:revive // public API: changing the signature breaks callers.
+	err := s.sdkCall(ctx, sdkRequest{cmd: methodName, params: cmdParams(req)}, resp, config)
 	if err != nil {
 		var empty R
 		return empty, err
@@ -358,7 +399,7 @@ func (c *Client) SetAppControlProperty(ctx context.Context, name string, value s
 	encodedValue := shiroclient.EncodePhylumBytes([]byte(value))
 	params := []interface{}{name, encodedValue}
 	// Call the underlying method using sdkCall. We don't expect any response, so rep is nil.
-	if err := c.sdkCall(ctx, "set_app_control_property", params, nil, configs); err != nil {
+	if err := c.sdkCall(ctx, sdkRequest{cmd: "set_app_control_property", params: params}, nil, configs); err != nil {
 		return fmt.Errorf("failed to set app control property %q: %w", name, err)
 	}
 	return nil
@@ -371,7 +412,7 @@ func (c *Client) GetAppControlProperty(ctx context.Context, name string, configs
 	params := []interface{}{name}
 	// Use wrapperspb.StringValue to hold the response value.
 	response := &wrapperspb.StringValue{}
-	if err := c.sdkCall(ctx, "get_app_control_property", params, response, configs); err != nil {
+	if err := c.sdkCall(ctx, sdkRequest{cmd: "get_app_control_property", params: params}, response, configs); err != nil {
 		return "", fmt.Errorf("failed to get app control property %q: %w", name, err)
 	}
 	return response.GetValue(), nil

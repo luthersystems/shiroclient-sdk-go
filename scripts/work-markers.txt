@@ -1,0 +1,46 @@
+# Reviewed allowlist for the work marker gate (scripts/work-marker-gate.sh).
+#
+# WHAT THIS IS FOR
+# ----------------
+# The gate fails CI when a tracked file contains a work marker: one of the
+# upper-case words TODO, FIXME, XXX, HACK or BUG, standing alone (the
+# characters on both sides are not letters, digits or `_`). Matching is
+# case-sensitive. Binary files are skipped. This file is the only path the scan
+# excludes.
+#
+# Fix the work before you merge. When a marker must stay, add one entry here
+# and justify it in the PR description. There are two kinds of entry:
+#
+#   * Deferred work. The marker records work for later. The entry names a
+#     tracking issue and an expiry date. Past its expiry the entry stops
+#     covering, so the work is re-decided instead of inherited.
+#   * Not work. The word is data: a log prefix, a quoted message, third-party
+#     source. The entry uses `never` as its expiry and `-` (or an issue) as its
+#     issue.
+#
+# The gate fails on an entry that covers nothing (ALLOW-STALE) or has expired
+# (ALLOW-EXPIRED), so delete an entry when its marker goes. It refuses to run
+# (exit 2) on any malformed entry. A malformed file is never read as an empty
+# one.
+#
+# FORMAT
+# ------
+# One entry per line, five `|`-separated fields. Blank lines and lines whose
+# first non-blank character is `#` are comments.
+#
+#   path | text | expires | issue | reason
+#
+#   path     One exact repository-relative path, with forward slashes. No globs.
+#   text     A fixed substring of the marked line. It must contain a marker.
+#            The entry covers every line in `path` that contains `text`. The
+#            gate removes `text` from the line and scans the rest again, so a
+#            second marker on the same line still needs its own entry.
+#   expires  YYYY-MM-DD, or `never` for a word that is not work.
+#   issue    One or more tracking references, space separated: `#412`,
+#            `luthersystems/substrate#392` or a GitHub issue/PR URL.
+#            `-` is allowed only with `never`.
+#   reason   Free text (no `|`), at least 10 characters.
+#
+# ---------------------------------------------------------------------------
+# path | text | expires | issue | reason
+# ---------------------------------------------------------------------------

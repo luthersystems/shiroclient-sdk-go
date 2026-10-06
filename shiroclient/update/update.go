@@ -103,7 +103,7 @@ func withNewPhylumVersion(newPhylumVersion string) types.Config {
 }
 
 // Install adds new phylum to substrate.
-func Install(ctx context.Context, client shiroclient.ShiroClient, version string, phylum []byte, clientConfigs ...shiroclient.Config) error {
+func Install(ctx context.Context, client shiroclient.ShiroClient, version string, phylum []byte, clientConfigs ...shiroclient.Config) error { //nolint:revive // public API: changing the signature breaks callers.
 	newConfigs := []shiroclient.Config{shiroclient.WithParams([]string{shiroclient.EncodePhylumBytes(phylum)}), withNewPhylumVersion(version)}
 	configs := make([]shiroclient.Config, 0, len(newConfigs)+len(clientConfigs))
 	configs = append(configs, newConfigs...)

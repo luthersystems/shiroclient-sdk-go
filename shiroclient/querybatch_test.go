@@ -3,7 +3,6 @@ package shiroclient_test
 import (
 	"context"
 	"encoding/hex"
-	"errors"
 	"sync/atomic"
 	"testing"
 
@@ -69,7 +68,7 @@ func TestQueryBatch(t *testing.T) {
 
 	req := <-got
 	assert.Equal(t, "QueryBatch", req["method"])
-	params := req["params"].(map[string]interface{})
+	params := as[map[string]interface{}](t, req["params"])
 	assert.Equal(t, map[string]interface{}{"csprng_seed_private": hex.EncodeToString([]byte("seed"))}, params["transient"])
 	assert.Equal(t, []interface{}{
 		map[string]interface{}{"method": "put", "params": []interface{}{"k", "v"}, "id": "w"},
@@ -85,7 +84,7 @@ func TestQueryBatchFailureIsBatchError(t *testing.T) {
 		{Method: "b", ID: "b"},
 	})
 	var batchErr *shiroclient.CallBatchError
-	require.True(t, errors.As(err, &batchErr), "got %T: %v", err, err)
+	require.ErrorAs(t, err, &batchErr, "got %T: %v", err, err)
 	assert.Equal(t, 0, batchErr.Index)
 	assert.Equal(t, "a", batchErr.ID)
 	require.NotNil(t, resp, "the responses come with the error")
@@ -117,15 +116,15 @@ func TestQueryBatchOldGateway(t *testing.T) {
 	client, _, _ := batchGateway(t, oldGateway)
 	_, err := shiroclient.QueryBatch(context.Background(), client,
 		[]shiroclient.CallBatchRequest{{Method: "a"}})
-	require.True(t, errors.Is(err, shiroclient.ErrQueryBatchNotSupported), "got %v", err)
-	assert.False(t, errors.Is(err, shiroclient.ErrCallBatchNotSupported))
+	require.ErrorIs(t, err, shiroclient.ErrQueryBatchNotSupported, "got %v", err)
+	require.NotErrorIs(t, err, shiroclient.ErrCallBatchNotSupported)
 	assert.Contains(t, err.Error(), "QueryBatch")
 }
 
 func TestQueryBatchClientWithoutSupport(t *testing.T) {
 	_, err := shiroclient.QueryBatch(context.Background(), plainClient{},
 		[]shiroclient.CallBatchRequest{{Method: "a"}})
-	require.True(t, errors.Is(err, shiroclient.ErrQueryBatchNotSupported), "got %v", err)
+	require.ErrorIs(t, err, shiroclient.ErrQueryBatchNotSupported, "got %v", err)
 }
 
 // TestQueryBatchMock runs a QueryBatch against the real mock plugin: its

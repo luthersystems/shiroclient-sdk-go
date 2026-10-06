@@ -53,8 +53,7 @@ func TestHealth(t *testing.T) {
 	client, err := shiroclient.NewMock(nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		err := client.Close()
-		require.NoError(t, err)
+		require.NoError(t, client.Close())
 	})
 	initClient(t, client, testPhylum)
 	version, err := client.ShiroPhylum(context.Background())
@@ -99,8 +98,7 @@ func TestSnapshotWithPhylum(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		err := newClient.Close()
-		require.NoError(t, err)
+		require.NoError(t, newClient.Close())
 	})
 
 	resp, err := call(newClient, "read", nil, nil)
