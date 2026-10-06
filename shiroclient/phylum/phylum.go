@@ -207,6 +207,50 @@ func newMockFrom(phylumPath string, log *logrus.Entry, r io.Reader, cfgPath stri
 	return client, nil
 }
 
+// Error is the error a Client call returns when the phylum answers with a
+// JSON-RPC error.  Error() is safe to show on a frontend: the error data when
+// it is a JSON string (as a `route-failure` with a string message sends), and
+// otherwise "unknown phylum error", so that structured data never leaks.  Go
+// callers read the JSON-RPC code and the raw data with errors.As.
+type Error struct {
+	message  string
+	dataJSON []byte
+	code     int
+}
+
+// newPhylumError builds the Error for a phylum's JSON-RPC error.
+func newPhylumError(e shiroclient.Error) *Error {
+	perr := &Error{
+		message:  "unknown phylum error",
+		dataJSON: e.DataJSON(),
+		code:     e.Code(),
+	}
+	// Bubble up a string message that can be displayed on the frontend.
+	// Anything else (an object, null) stays masked to avoid leaking
+	// sensitive or confusing objects to the frontend.
+	var errMsg *string
+	if json.Unmarshal(perr.dataJSON, &errMsg) == nil && errMsg != nil {
+		perr.message = *errMsg
+	}
+	return perr
+}
+
+// Error implements error.  It is the masked message described on Error.
+func (e *Error) Error() string {
+	return e.message
+}
+
+// Code is the JSON-RPC error code the phylum returned.
+func (e *Error) Code() int {
+	return e.code
+}
+
+// DataJSON is the JSON-RPC error data the phylum returned, unmasked.  It may
+// contain PII: do not log it or send it to a frontend.
+func (e *Error) DataJSON() []byte {
+	return e.dataJSON
+}
+
 // sdkRequest is a phylum endpoint and the params sdkCall sends it.
 type sdkRequest struct {
 	params interface{}
@@ -259,20 +303,7 @@ func (s *Client) sdkCall(ctx context.Context, req sdkRequest, rep proto.Message,
 			//"jsonrpc_data":    string(jsonResp),
 			"jsonrpc_message": e.Message(),
 		}).Errorf("json-rpc error received from phylum")
-		// Attempt to extract an error message string in the JSON
-		// response, and bubble up an error that can be displayed on the
-		// frontend. This allows `route-failure` string responses to be
-		// displayed on the frontend.
-		if ejs := e.DataJSON(); ejs != nil {
-			var errMsg string
-			if jerr := json.Unmarshal(ejs, &errMsg); jerr == nil {
-				return errors.New(errMsg)
-			}
-		}
-		// The error data wasn't a JSON string message, revert to a masked
-		// error to avoid potentially leaking senstive/confusing objects to the
-		// frontend.
-		return errors.New("unknown phylum error")
+		return newPhylumError(e)
 	}
 	if rep == nil || len(resp.ResultJSON()) == 0 || string(resp.ResultJSON()) == "null" {
 		// nothing to unmarshal

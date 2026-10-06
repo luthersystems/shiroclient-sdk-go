@@ -139,3 +139,42 @@ func TestAmbiguousTxID(t *testing.T) {
 		assert.Empty(t, txID)
 	}
 }
+
+// TestCallPhylumError checks a phylum's JSON-RPC error keeps its code and
+// data for Go callers (errors.As *phylum.Error), while Error() stays the
+// masked text a frontend may show (#90).
+func TestCallPhylumError(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{"string data", `"route failure message"`, "route failure message"},
+		{"map data", `{"error":"start-rejected","message":"no","run":{"x":1}}`, "unknown phylum error"},
+		{"null data", `null`, "unknown phylum error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]interface{}{
+				"jsonrpc": "2.0", "id": 1,
+				"result": map[string]interface{}{"error_level": 2, "result": nil, "code": 7, "message": "phylum failed", "data": json.RawMessage(tc.data)},
+			})
+			require.NoError(t, err)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
+			defer srv.Close()
+			client, err := phylum.New(srv.URL, logrus.NewEntry(logrus.New()))
+			require.NoError(t, err)
+
+			_, err = phylum.Call(client, context.Background(), "test", wrapperspb.String("request"), &wrapperspb.StringValue{}, shiroclient.WithHTTPClient(srv.Client()))
+			require.EqualError(t, err, tc.want)
+			setErr := client.SetAppControlProperty(context.Background(), "p", "v", shiroclient.WithHTTPClient(srv.Client()))
+			require.EqualError(t, setErr, `failed to set app control property "p": `+tc.want)
+
+			for _, check := range []error{err, setErr} {
+				var perr *phylum.Error
+				require.ErrorAs(t, check, &perr)
+				assert.Equal(t, 7, perr.Code())
+				assert.JSONEq(t, tc.data, string(perr.DataJSON()))
+			}
+		})
+	}
+}
