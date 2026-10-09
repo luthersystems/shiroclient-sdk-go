@@ -3,10 +3,6 @@ package shiroclient
 import (
 	"context"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 )
@@ -30,6 +26,20 @@ type FlowSnapshotImporter = types.FlowSnapshotImporter
 // (luthersystems/substrate#707).  Nothing was written.
 var ErrFlowSnapshotsNotSupported = types.ErrFlowSnapshotsNotSupported
 
+// Refusals of an import, by kind: an import error matches at most one of
+// them with errors.Is.  An error that matches none is a failure of the
+// mock or the plugin, not of the snapshots.
+var (
+	ErrFlowSnapshotFormat       = types.ErrFlowSnapshotFormat
+	ErrFlowSnapshotNotInstalled = types.ErrFlowSnapshotNotInstalled
+	ErrFlowSnapshotConflict     = types.ErrFlowSnapshotConflict
+	ErrFlowSnapshotInvalid      = types.ErrFlowSnapshotInvalid
+	ErrFlowSnapshotTooLarge     = types.ErrFlowSnapshotTooLarge
+)
+
+// MaxFlowSnapshotBytes caps the total Data of one import.
+const MaxFlowSnapshotBytes = types.MaxFlowSnapshotBytes
+
 // ImportFlowSnapshots writes defflow snapshots into a mock client's ledger,
 // so a Go test can load production runs and drive a migration with Call.  It
 // returns the member runs it restored.
@@ -41,8 +51,8 @@ var ErrFlowSnapshotsNotSupported = types.ErrFlowSnapshotsNotSupported
 // already holds with other content.  Install the phylum version the runs are
 // on before the import, and the candidate version after it.
 //
-// Every snapshot goes to the plugin in one message, with no size cap of its
-// own; the plugin RPC (gob) refuses a message near 1 GiB.
+// Every snapshot goes to the plugin in one message, so one import holds at
+// most MaxFlowSnapshotBytes of snapshot data (ErrFlowSnapshotTooLarge).
 //
 // A ctx that has ended stops the import before it starts.
 //
@@ -61,32 +71,11 @@ func ImportFlowSnapshots(ctx context.Context, client ShiroClient, snapshots []Fl
 // order, as `shirotester flow-*` does.  A snapshot's Name is its path.  A
 // directory that holds no *.json file is an error; a subdirectory is
 // skipped.  Files are read through an os.Root of dir, so a symlink that
-// points out of dir is an error, not a read.
+// points out of dir is an error, not a read.  Files whose total size
+// exceeds MaxFlowSnapshotBytes are an error matching
+// ErrFlowSnapshotTooLarge.
 func ReadFlowSnapshotDir(dir string) ([]FlowSnapshot, error) {
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = root.Close() }()
-	entries, err := fs.ReadDir(root.FS(), ".") // sorted by name
-	if err != nil {
-		return nil, err
-	}
-	var out []FlowSnapshot
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		b, err := root.ReadFile(e.Name())
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, FlowSnapshot{Name: filepath.Join(dir, e.Name()), Data: b})
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("%s holds no snapshot (*.json)", dir)
-	}
-	return out, nil
+	return types.ReadFlowSnapshotDir(dir)
 }
 
 // ImportFlowSnapshotDir is ImportFlowSnapshots of the snapshot files of dir

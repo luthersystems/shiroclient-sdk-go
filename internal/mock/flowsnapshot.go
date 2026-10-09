@@ -19,6 +19,9 @@ func (c *mockShiroClient) ImportFlowSnapshots(ctx context.Context, snapshots []t
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("import defflow snapshots: %w", err)
 	}
+	if err := types.CheckFlowSnapshotsSize(snapshots); err != nil {
+		return nil, fmt.Errorf("import defflow snapshots: %w", err)
+	}
 	fs, ok := c.substrate.(plugin.FlowSnapshotSubstrate)
 	if !ok {
 		return nil, fmt.Errorf("%w: the mock substrate plugin cannot import defflow snapshots", types.ErrFlowSnapshotsNotSupported)
@@ -40,3 +43,4 @@ func (c *mockShiroClient) ImportFlowSnapshots(ctx context.Context, snapshots []t
 	}
 	return out, nil
 }
+

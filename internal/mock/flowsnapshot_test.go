@@ -71,3 +71,19 @@ func TestMockImportFlowSnapshotsCancelled(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, fake.gotSnaps, "a cancelled import reaches the plugin")
 }
+
+func TestMockImportFlowSnapshotsTooLarge(t *testing.T) {
+	fake := &flowSnapshotFake{}
+	c := &mockShiroClient{substrate: fake, tag: "t"}
+	mib := make([]byte, 1<<20)
+	snaps := make([]types.FlowSnapshot, types.MaxFlowSnapshotBytes>>20+1)
+	for i := range snaps {
+		snaps[i] = types.FlowSnapshot{Name: fmt.Sprintf("%d.json", i), Data: mib}
+	}
+	_, err := c.ImportFlowSnapshots(context.Background(), snaps)
+	require.ErrorIs(t, err, types.ErrFlowSnapshotTooLarge)
+	assert.Nil(t, fake.gotSnaps, "an import over the cap reaches the plugin")
+	_, err = c.ImportFlowSnapshots(context.Background(), snaps[:len(snaps)-1])
+	require.NoError(t, err, "an import at the cap")
+}
+

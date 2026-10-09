@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,4 +64,33 @@ func TestPluginImportFlowSnapshotsNotSupported(t *testing.T) {
 			require.ErrorIs(t, err, ErrFlowSnapshotsNotSupported, "got %v", err)
 		})
 	}
+}
+
+// A refusal's kind crosses the RPC as a code: the client's error matches the
+// same kind, keeps the text, and matches no other kind.
+func TestPluginImportFlowSnapshotsCodes(t *testing.T) {
+	kinds := []error{ErrFlowSnapshotFormat, ErrFlowSnapshotNotInstalled, ErrFlowSnapshotConflict, ErrFlowSnapshotInvalid, ErrFlowSnapshotTooLarge}
+	for i, kind := range kinds {
+		t.Run(kind.Error(), func(t *testing.T) {
+			fake := &fakeFlowSnapshots{err: fmt.Errorf("run loan/r1: %w", kind)}
+			client := pipeClient(t, &PluginRPCServer{Impl: fake})
+			_, err := client.ImportFlowSnapshotsMock("tag", []FlowSnapshot{{Name: "a.json"}})
+			require.ErrorIs(t, err, kind)
+			assert.Contains(t, err.Error(), "run loan/r1")
+			for j, other := range kinds {
+				if j != i {
+					require.NotErrorIs(t, err, other)
+				}
+			}
+			assert.NotErrorIs(t, err, ErrFlowSnapshotsNotSupported)
+		})
+	}
+	t.Run("no kind", func(t *testing.T) {
+		client := pipeClient(t, &PluginRPCServer{Impl: &fakeFlowSnapshots{err: errors.New("disk on fire")}})
+		_, err := client.ImportFlowSnapshotsMock("tag", []FlowSnapshot{{Name: "a.json"}})
+		require.ErrorContains(t, err, "disk on fire")
+		for _, k := range kinds {
+			assert.NotErrorIs(t, err, k)
+		}
+	})
 }
