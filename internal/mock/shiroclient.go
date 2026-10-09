@@ -69,7 +69,11 @@ type mockShiroClient struct {
 	tag         string
 	shiroPhylum string
 	baseConfig  []types.Config
-	closeOnce   sync.Once
+	// pendingFlowSnapshots are WithFlowSnapshots's snapshots, until the
+	// first Init (or, for a restored mock, NewMock) imports them.
+	pendingFlowSnapshots []types.FlowSnapshot
+	closeOnce            sync.Once
+	pendingMu            sync.Mutex
 }
 
 // flatten is the single choke point for every RPC-bound method (Init, Call,
@@ -151,7 +155,10 @@ func (c *mockShiroClient) Init(ctx context.Context, phylum string, configs ...ty
 	if err != nil {
 		return err
 	}
-	return c.substrate.Init(c.tag, phylum, cro)
+	if err := c.substrate.Init(c.tag, phylum, cro); err != nil {
+		return err
+	}
+	return c.importPendingFlowSnapshots(ctx)
 }
 
 // Call implements the ShiroClient interface.
@@ -286,6 +293,15 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 		plugin.ConnectWithAttachStdamp(config.LogWriter),
 		plugin.ConnectWithLogOutput(config.LogWriter),
 	}
+	var flowSnapshots []types.FlowSnapshot
+	if config.FlowSnapshotDir != "" {
+		// Read now, so a bad directory fails NewMock, not the first Init.
+		var err error
+		flowSnapshots, err = types.ReadFlowSnapshotDir(config.FlowSnapshotDir)
+		if err != nil {
+			return nil, fmt.Errorf("mock.WithFlowSnapshots: %w", err)
+		}
+	}
 	var snapshot []byte
 	if config.SnapshotReader != nil {
 		var err error
@@ -337,14 +353,25 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 			return nil, fmt.Errorf("failed to set mock creator: %w", err)
 		}
 	}
-	return &mockShiroClient{
+	c := &mockShiroClient{
 		baseConfig:  clientConfigs,
 		conn:        conn,
 		substrate:   conn.GetSubstrate(),
 		release:     release,
 		tag:         tag,
 		shiroPhylum: mockint.PhylumName,
-	}, nil
+
+		pendingFlowSnapshots: flowSnapshots,
+	}
+	if len(snapshot) > 0 {
+		// A restored mock is never Init'd: import now.  An empty
+		// snapshot is a fresh ledger, which Init will install.
+		if err := c.importPendingFlowSnapshots(context.Background()); err != nil {
+			_ = c.Close()
+			return nil, err
+		}
+	}
+	return c, nil
 }
 
 var (

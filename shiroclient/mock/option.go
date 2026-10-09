@@ -68,6 +68,26 @@ func WithSnapshotReader(r io.Reader) Option {
 	}
 }
 
+// WithFlowSnapshots imports the defflow snapshots of dir (every *.json
+// file, as shiroclient.ReadFlowSnapshotDir reads them) into the mock after
+// its first successful Init, once.  NewMock reads dir and fails when it
+// cannot.  If the import fails, that Init returns the error; the phylum
+// stays installed and the snapshots are not imported again.  A mock
+// restored with WithSnapshotReader is never Init'd, so NewMock imports
+// right after the restore, and fails when the import fails.
+//
+// The import needs the phylum version each run is on installed, at the
+// run's flow version, so the Init must install that version (a run
+// exported from production names its production label, not the mock's
+// default).  For another install order, call shiroclient.ImportFlowSnapshots
+// directly.  The plugin must implement the import
+// (shiroclient.ErrFlowSnapshotsNotSupported otherwise).
+func WithFlowSnapshots(dir string) Option {
+	return func(config *mockint.Config) {
+		config.FlowSnapshotDir = dir
+	}
+}
+
 // WithPreheatTimeout overrides the substrate phylum preheat/init timeout for
 // the mock. A non-positive duration leaves the substrate default (6s) in
 // effect. Raising it helps avoid spurious "phylum init timeout" errors when

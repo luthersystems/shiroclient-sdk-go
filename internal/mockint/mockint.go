@@ -25,8 +25,11 @@ type Config struct {
 	PluginPath     string
 	// Creator is the fake transaction creator MSP ID set on the mock
 	// ledger when it is created. Empty leaves the creator unset.
-	Creator  string
-	LogLevel LogLevel
+	Creator string
+	// FlowSnapshotDir is a directory of defflow snapshots the mock imports
+	// after its first Init.  Empty imports nothing.
+	FlowSnapshotDir string
+	LogLevel        LogLevel
 	// PreheatTimeout overrides the substrate phylum preheat/init timeout. A
 	// non-positive value leaves the substrate default in effect.
 	PreheatTimeout time.Duration
