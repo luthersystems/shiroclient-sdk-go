@@ -69,7 +69,11 @@ type mockShiroClient struct {
 	tag         string
 	shiroPhylum string
 	baseConfig  []types.Config
-	closeOnce   sync.Once
+	// pendingFlowSnapshots are WithFlowSnapshots's snapshots, until the
+	// first Init imports them.
+	pendingFlowSnapshots []types.FlowSnapshot
+	closeOnce            sync.Once
+	pendingMu            sync.Mutex
 }
 
 // flatten is the single choke point for every RPC-bound method (Init, Call,
@@ -151,7 +155,10 @@ func (c *mockShiroClient) Init(ctx context.Context, phylum string, configs ...ty
 	if err != nil {
 		return err
 	}
-	return c.substrate.Init(c.tag, phylum, cro)
+	if err := c.substrate.Init(c.tag, phylum, cro); err != nil {
+		return err
+	}
+	return c.importPendingFlowSnapshots(ctx)
 }
 
 // Call implements the ShiroClient interface.
@@ -286,6 +293,15 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 		plugin.ConnectWithAttachStdamp(config.LogWriter),
 		plugin.ConnectWithLogOutput(config.LogWriter),
 	}
+	var flowSnapshots []types.FlowSnapshot
+	if config.FlowSnapshotDir != "" {
+		// Read now, so a bad directory fails NewMock, not the first Init.
+		var err error
+		flowSnapshots, err = types.ReadFlowSnapshotDir(config.FlowSnapshotDir)
+		if err != nil {
+			return nil, fmt.Errorf("mock.WithFlowSnapshots: %w", err)
+		}
+	}
 	var snapshot []byte
 	if config.SnapshotReader != nil {
 		var err error
@@ -344,6 +360,8 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 		release:     release,
 		tag:         tag,
 		shiroPhylum: mockint.PhylumName,
+
+		pendingFlowSnapshots: flowSnapshots,
 	}, nil
 }
 

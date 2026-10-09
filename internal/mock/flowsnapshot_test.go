@@ -87,3 +87,45 @@ func TestMockImportFlowSnapshotsTooLarge(t *testing.T) {
 	require.NoError(t, err, "an import at the cap")
 }
 
+// initFlowSnapshotFake is a flowSnapshotFake whose Init succeeds or fails.
+type initFlowSnapshotFake struct {
+	flowSnapshotFake
+	initErr error
+	inits   int
+}
+
+func (f *initFlowSnapshotFake) Init(string, string, *plugin.ConcreteRequestOptions) error {
+	f.inits++
+	return f.initErr
+}
+
+// WithFlowSnapshots's snapshots import after the first successful Init,
+// once; an import error is that Init's error.
+func TestMockPendingFlowSnapshots(t *testing.T) {
+	snaps := []types.FlowSnapshot{{Name: "a.json", Data: []byte("{}")}}
+	t.Run("after the first Init", func(t *testing.T) {
+		fake := &initFlowSnapshotFake{}
+		c := &mockShiroClient{substrate: fake, tag: "t", pendingFlowSnapshots: snaps}
+		require.NoError(t, c.Init(context.Background(), "p"))
+		assert.Equal(t, []plugin.FlowSnapshot{{Name: "a.json", Data: []byte("{}")}}, fake.gotSnaps)
+		fake.gotSnaps = nil
+		require.NoError(t, c.Init(context.Background(), "p"))
+		assert.Nil(t, fake.gotSnaps, "a second Init imports again")
+	})
+	t.Run("Init fails", func(t *testing.T) {
+		fake := &initFlowSnapshotFake{initErr: errors.New("bad phylum")}
+		c := &mockShiroClient{substrate: fake, tag: "t", pendingFlowSnapshots: snaps}
+		require.ErrorContains(t, c.Init(context.Background(), "p"), "bad phylum")
+		assert.Nil(t, fake.gotSnaps, "a failed Init imports")
+		fake.initErr = nil
+		require.NoError(t, c.Init(context.Background(), "p"))
+		assert.NotNil(t, fake.gotSnaps, "the first successful Init imports")
+	})
+	t.Run("import fails", func(t *testing.T) {
+		fake := &initFlowSnapshotFake{flowSnapshotFake: flowSnapshotFake{err: fmt.Errorf("x: %w", plugin.ErrFlowSnapshotNotInstalled)}}
+		c := &mockShiroClient{substrate: fake, tag: "t", pendingFlowSnapshots: snaps}
+		err := c.Init(context.Background(), "p")
+		require.ErrorIs(t, err, types.ErrFlowSnapshotNotInstalled)
+		require.ErrorContains(t, err, "WithFlowSnapshots")
+	})
+}

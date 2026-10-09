@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
+	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
 )
 
 func TestReadFlowSnapshotDir(t *testing.T) {
@@ -74,4 +75,23 @@ func TestImportFlowSnapshotsMock(t *testing.T) {
 	}
 	assert.Contains(t, err.Error(), "bad.json")
 	assert.Contains(t, err.Error(), "defflow-snapshot/1")
+}
+
+// WithFlowSnapshots reads its directory in NewMock, so a bad one fails
+// there, and imports after the first Init.
+func TestMockWithFlowSnapshots(t *testing.T) {
+	_, err := shiroclient.NewMock(nil, mock.WithFlowSnapshots(t.TempDir()))
+	require.ErrorContains(t, err, "holds no snapshot")
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.json"), []byte(`{"format":"defflow-snapshot/0"}`), 0o600))
+	client, err := shiroclient.NewMock(nil, mock.WithFlowSnapshots(dir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+	err = client.Init(context.Background(), shiroclient.EncodePhylumBytes([]byte("(in-package 'user)")))
+	require.ErrorContains(t, err, "WithFlowSnapshots")
+	if errors.Is(err, shiroclient.ErrFlowSnapshotsNotSupported) {
+		return // a plugin that predates the import
+	}
+	require.ErrorIs(t, err, shiroclient.ErrFlowSnapshotFormat)
 }
