@@ -13,8 +13,12 @@ var _ types.FlowSnapshotImporter = (*mockShiroClient)(nil)
 
 // ImportFlowSnapshots implements types.FlowSnapshotImporter through the
 // plugin's FlowSnapshotSubstrate.  An older plugin yields
-// types.ErrFlowSnapshotsNotSupported.  The plugin call does not take ctx.
-func (c *mockShiroClient) ImportFlowSnapshots(_ context.Context, snapshots []types.FlowSnapshot) ([]types.ImportedFlowRun, error) {
+// types.ErrFlowSnapshotsNotSupported.  A ctx that has ended stops the import
+// before it starts; the plugin call itself does not take ctx.
+func (c *mockShiroClient) ImportFlowSnapshots(ctx context.Context, snapshots []types.FlowSnapshot) ([]types.ImportedFlowRun, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("import defflow snapshots: %w", err)
+	}
 	fs, ok := c.substrate.(plugin.FlowSnapshotSubstrate)
 	if !ok {
 		return nil, fmt.Errorf("%w: the mock substrate plugin cannot import defflow snapshots", types.ErrFlowSnapshotsNotSupported)

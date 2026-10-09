@@ -61,3 +61,13 @@ func TestMockImportFlowSnapshotsNotSupported(t *testing.T) {
 		})
 	}
 }
+
+func TestMockImportFlowSnapshotsCancelled(t *testing.T) {
+	fake := &flowSnapshotFake{}
+	c := &mockShiroClient{substrate: fake, tag: "t"}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := c.ImportFlowSnapshots(ctx, []types.FlowSnapshot{{Name: "a.json"}})
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, fake.gotSnaps, "a cancelled import reaches the plugin")
+}
