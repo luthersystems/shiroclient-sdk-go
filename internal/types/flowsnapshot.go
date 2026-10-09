@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -48,10 +49,10 @@ func CheckFlowSnapshotsSize(snapshots []FlowSnapshot) error {
 	for _, s := range snapshots {
 		n += len(s.Data)
 	}
-	return checkFlowSnapshotBytes(n)
+	return checkFlowSnapshotBytes(int64(n))
 }
 
-func checkFlowSnapshotBytes(n int) error {
+func checkFlowSnapshotBytes(n int64) error {
 	if n > MaxFlowSnapshotBytes {
 		return fmt.Errorf("%w: %d bytes, over the cap of %d", ErrFlowSnapshotTooLarge, n, MaxFlowSnapshotBytes)
 	}
@@ -60,11 +61,12 @@ func checkFlowSnapshotBytes(n int) error {
 
 // ReadFlowSnapshotDir reads every *.json snapshot file of dir, in name
 // order, as `shirotester flow-*` does.  A snapshot's Name is its path.  A
-// directory that holds no *.json file is an error; a subdirectory is
+// directory that holds no *.json file is an error; an entry that is not a
+// regular file (a subdirectory, a FIFO, a symlink to a directory) is
 // skipped.  Files are read through an os.Root of dir, so a symlink that
 // points out of dir is an error, not a read.  Files whose total size
 // exceeds MaxFlowSnapshotBytes are an error matching
-// ErrFlowSnapshotTooLarge.
+// ErrFlowSnapshotTooLarge, found before the file that goes over is read.
 func ReadFlowSnapshotDir(dir string) ([]FlowSnapshot, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
@@ -78,23 +80,51 @@ func ReadFlowSnapshotDir(dir string) ([]FlowSnapshot, error) {
 	var out []FlowSnapshot
 	total := 0
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		b, err := root.ReadFile(e.Name())
+		// Stat follows a symlink (inside the root), so the check is on
+		// the file a read would open.  Opening a FIFO would block.
+		info, err := root.Stat(e.Name())
 		if err != nil {
 			return nil, err
 		}
-		total += len(b)
-		if err := checkFlowSnapshotBytes(total); err != nil {
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		if err = checkFlowSnapshotBytes(int64(total) + info.Size()); err != nil {
 			return nil, fmt.Errorf("%s: %w", dir, err)
 		}
+		b, err := readRootFile(root, e.Name(), MaxFlowSnapshotBytes-total)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", dir, err)
+		}
+		total += len(b)
 		out = append(out, FlowSnapshot{Name: filepath.Join(dir, e.Name()), Data: b})
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("%s holds no snapshot (*.json)", dir)
 	}
 	return out, nil
+}
+
+// readRootFile reads name of root, at most limit bytes: a file that grew
+// past limit since it was stat'd is an error matching
+// ErrFlowSnapshotTooLarge.
+func readRootFile(root *os.Root, name string, limit int) ([]byte, error) {
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	b, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > limit {
+		return nil, fmt.Errorf("%s: %w: over the %d bytes left of the cap of %d", name, ErrFlowSnapshotTooLarge, limit, MaxFlowSnapshotBytes)
+	}
+	return b, nil
 }
 
 // FlowSnapshot is one defflow snapshot file (format "defflow-snapshot/1"):
