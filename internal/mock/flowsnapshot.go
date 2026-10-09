@@ -45,17 +45,19 @@ func (c *mockShiroClient) ImportFlowSnapshots(ctx context.Context, snapshots []t
 }
 
 // importPendingFlowSnapshots imports the snapshots of WithFlowSnapshots,
-// once: Init calls it after the mock's first Init succeeds.
+// once: Init calls it after the mock's first Init succeeds, and NewMock
+// right after a restore.  It holds pendingMu through the import, so a
+// concurrent Init returns only after the import ends.
 func (c *mockShiroClient) importPendingFlowSnapshots(ctx context.Context) error {
 	c.pendingMu.Lock()
+	defer c.pendingMu.Unlock()
 	snaps := c.pendingFlowSnapshots
 	c.pendingFlowSnapshots = nil
-	c.pendingMu.Unlock()
 	if snaps == nil {
 		return nil
 	}
 	if _, err := c.ImportFlowSnapshots(ctx, snaps); err != nil {
-		return fmt.Errorf("mock.WithFlowSnapshots: import after Init: %w", err)
+		return fmt.Errorf("mock.WithFlowSnapshots: import: %w", err)
 	}
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/x/plugin"
@@ -128,4 +129,37 @@ func TestMockPendingFlowSnapshots(t *testing.T) {
 		require.ErrorIs(t, err, types.ErrFlowSnapshotNotInstalled)
 		require.ErrorContains(t, err, "WithFlowSnapshots")
 	})
+}
+
+// blockingFlowSnapshotFake is an initFlowSnapshotFake whose import waits
+// for release.
+type blockingFlowSnapshotFake struct {
+	initFlowSnapshotFake
+	started chan struct{}
+	release chan struct{}
+}
+
+func (f *blockingFlowSnapshotFake) ImportFlowSnapshotsMock(tag string, snaps []plugin.FlowSnapshot) ([]plugin.ImportedFlowRun, error) {
+	close(f.started)
+	<-f.release
+	return f.initFlowSnapshotFake.ImportFlowSnapshotsMock(tag, snaps)
+}
+
+// A second Init that runs while the first imports waits for the import.
+func TestMockPendingFlowSnapshotsConcurrentInit(t *testing.T) {
+	fake := &blockingFlowSnapshotFake{started: make(chan struct{}), release: make(chan struct{})}
+	c := &mockShiroClient{substrate: fake, tag: "t", pendingFlowSnapshots: []types.FlowSnapshot{{Name: "a.json"}}}
+	first := make(chan error, 1)
+	go func() { first <- c.Init(context.Background(), "p") }()
+	<-fake.started
+	second := make(chan error, 1)
+	go func() { second <- c.Init(context.Background(), "p") }()
+	select {
+	case err := <-second:
+		t.Fatalf("the second Init returned (%v) while the import ran", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(fake.release)
+	require.NoError(t, <-first)
+	require.NoError(t, <-second)
 }
