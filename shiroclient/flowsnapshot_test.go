@@ -2,6 +2,7 @@ package shiroclient_test
 
 import (
 	"context"
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -92,6 +93,26 @@ func TestMockWithFlowSnapshots(t *testing.T) {
 	require.ErrorContains(t, err, "WithFlowSnapshots")
 	if errors.Is(err, shiroclient.ErrFlowSnapshotsNotSupported) {
 		return // a plugin that predates the import
+	}
+	require.ErrorIs(t, err, shiroclient.ErrFlowSnapshotFormat)
+}
+
+// A mock restored from a snapshot is never Init'd, so WithFlowSnapshots
+// imports right after the restore, and NewMock returns the import's error.
+func TestMockWithFlowSnapshotsAfterRestore(t *testing.T) {
+	src, err := shiroclient.NewMock(nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = src.Close() })
+	require.NoError(t, src.Init(context.Background(), shiroclient.EncodePhylumBytes([]byte("(in-package 'user)"))))
+	var state bytes.Buffer
+	require.NoError(t, src.Snapshot(&state))
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.json"), []byte(`{"format":"defflow-snapshot/0"}`), 0o600))
+	_, err = shiroclient.NewMock(nil, mock.WithSnapshotReader(&state), mock.WithFlowSnapshots(dir))
+	require.ErrorContains(t, err, "WithFlowSnapshots")
+	if errors.Is(err, shiroclient.ErrFlowSnapshotsNotSupported) {
+		return // a plugin that predates the import: the import still ran
 	}
 	require.ErrorIs(t, err, shiroclient.ErrFlowSnapshotFormat)
 }

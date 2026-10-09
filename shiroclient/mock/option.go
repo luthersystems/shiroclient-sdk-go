@@ -72,7 +72,9 @@ func WithSnapshotReader(r io.Reader) Option {
 // file, as shiroclient.ReadFlowSnapshotDir reads them) into the mock after
 // its first successful Init, once.  NewMock reads dir and fails when it
 // cannot.  If the import fails, that Init returns the error; the phylum
-// stays installed and the snapshots are not imported again.
+// stays installed and the snapshots are not imported again.  A mock
+// restored with WithSnapshotReader is never Init'd, so NewMock imports
+// right after the restore, and fails when the import fails.
 //
 // The import needs the phylum version each run is on installed, at the
 // run's flow version, so the Init must install that version (a run

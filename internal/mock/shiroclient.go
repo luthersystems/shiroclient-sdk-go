@@ -70,7 +70,7 @@ type mockShiroClient struct {
 	shiroPhylum string
 	baseConfig  []types.Config
 	// pendingFlowSnapshots are WithFlowSnapshots's snapshots, until the
-	// first Init imports them.
+	// first Init (or, for a restored mock, NewMock) imports them.
 	pendingFlowSnapshots []types.FlowSnapshot
 	closeOnce            sync.Once
 	pendingMu            sync.Mutex
@@ -353,7 +353,7 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 			return nil, fmt.Errorf("failed to set mock creator: %w", err)
 		}
 	}
-	return &mockShiroClient{
+	c := &mockShiroClient{
 		baseConfig:  clientConfigs,
 		conn:        conn,
 		substrate:   conn.GetSubstrate(),
@@ -362,7 +362,15 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 		shiroPhylum: mockint.PhylumName,
 
 		pendingFlowSnapshots: flowSnapshots,
-	}, nil
+	}
+	if snapshot != nil {
+		// A restored mock is never Init'd: import now.
+		if err := c.importPendingFlowSnapshots(context.Background()); err != nil {
+			_ = c.Close()
+			return nil, err
+		}
+	}
+	return c, nil
 }
 
 var (
