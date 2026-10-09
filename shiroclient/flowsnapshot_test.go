@@ -27,6 +27,16 @@ func TestReadFlowSnapshotDir(t *testing.T) {
 
 	_, err = shiroclient.ReadFlowSnapshotDir(t.TempDir())
 	require.ErrorContains(t, err, "holds no snapshot")
+
+	// A glob metacharacter in the path is a plain character, and a
+	// directory named *.json is not a snapshot.
+	odd := filepath.Join(t.TempDir(), "run[1]*?")
+	require.NoError(t, os.Mkdir(odd, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(odd, "a.json"), []byte(`"a"`), 0o600))
+	require.NoError(t, os.Mkdir(filepath.Join(odd, "sub.json"), 0o700))
+	snaps, err = shiroclient.ReadFlowSnapshotDir(odd)
+	require.NoError(t, err)
+	assert.Equal(t, []shiroclient.FlowSnapshot{{Name: filepath.Join(odd, "a.json"), Data: []byte(`"a"`)}}, snaps)
 }
 
 func TestImportFlowSnapshotsClientWithoutSupport(t *testing.T) {

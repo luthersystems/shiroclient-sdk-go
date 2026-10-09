@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"strings"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 )
@@ -40,6 +40,11 @@ var ErrFlowSnapshotsNotSupported = types.ErrFlowSnapshotsNotSupported
 // already holds with other content.  Install the phylum version the runs are
 // on before the import, and the candidate version after it.
 //
+// Every snapshot goes to the plugin in one message, with no size cap of its
+// own; the plugin RPC (gob) refuses a message near 1 GiB.
+//
+// A ctx that has ended stops the import before it starts.
+//
 // The import is test tooling: only mock clients support it.  Any other
 // client, or a mock whose substratehcp plugin predates the import, returns
 // an error matching ErrFlowSnapshotsNotSupported.
@@ -53,16 +58,22 @@ func ImportFlowSnapshots(ctx context.Context, client ShiroClient, snapshots []Fl
 
 // ReadFlowSnapshotDir reads every *.json snapshot file of dir, in name
 // order, as `shirotester flow-*` does.  A snapshot's Name is its path.  A
-// directory that holds no *.json file is an error.
+// directory that holds no *.json file is an error; a subdirectory is
+// skipped.
 func ReadFlowSnapshotDir(dir string) ([]FlowSnapshot, error) {
-	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	entries, err := os.ReadDir(dir) // sorted by name
 	if err != nil {
 		return nil, err
+	}
+	var paths []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
+			paths = append(paths, filepath.Join(dir, e.Name()))
+		}
 	}
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("%s holds no snapshot (*.json)", dir)
 	}
-	sort.Strings(paths)
 	out := make([]FlowSnapshot, len(paths))
 	for i, p := range paths {
 		b, err := os.ReadFile(p) //nolint:gosec // a snapshot file in the directory the caller named
