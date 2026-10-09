@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // ErrFlowSnapshotsNotSupported is returned by ImportFlowSnapshots when the
@@ -83,19 +84,14 @@ func ReadFlowSnapshotDir(dir string) ([]FlowSnapshot, error) {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		// Stat follows a symlink (inside the root), so the check is on
-		// the file a read would open.  Opening a FIFO would block.
-		info, err := root.Stat(e.Name())
-		if err != nil {
-			return nil, err
-		}
-		if !info.Mode().IsRegular() {
+		// Open without blocking, then check the file it opened: opening
+		// a FIFO would otherwise block, and a check before the open could
+		// see a different file.  The open follows a symlink inside the
+		// root.
+		b, err := readRootFile(root, e.Name(), MaxFlowSnapshotBytes-total)
+		if errors.Is(err, errNotRegular) {
 			continue
 		}
-		if err = checkFlowSnapshotBytes(int64(total) + info.Size()); err != nil {
-			return nil, fmt.Errorf("%s: %w", dir, err)
-		}
-		b, err := readRootFile(root, e.Name(), MaxFlowSnapshotBytes-total)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", dir, err)
 		}
@@ -108,15 +104,29 @@ func ReadFlowSnapshotDir(dir string) ([]FlowSnapshot, error) {
 	return out, nil
 }
 
-// readRootFile reads name of root, at most limit bytes: a file that grew
-// past limit since it was stat'd is an error matching
-// ErrFlowSnapshotTooLarge.
+// errNotRegular is readRootFile's answer for a file that is not regular.
+var errNotRegular = errors.New("not a regular file")
+
+// readRootFile reads name of root, at most limit bytes.  A file that is not
+// regular is errNotRegular.  A file over limit is an error matching
+// ErrFlowSnapshotTooLarge, found from its size before it is read, or from
+// the read if it grew.
 func readRootFile(root *os.Root, name string, limit int) ([]byte, error) {
-	f, err := root.Open(name)
+	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errNotRegular
+	}
+	if info.Size() > int64(limit) {
+		return nil, fmt.Errorf("%s: %w: %d bytes, over the %d bytes left of the cap of %d", name, ErrFlowSnapshotTooLarge, info.Size(), limit, MaxFlowSnapshotBytes)
+	}
 	b, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
 	if err != nil {
 		return nil, err
