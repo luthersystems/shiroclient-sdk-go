@@ -1,8 +1,8 @@
 package shiroclient_test
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -115,4 +115,16 @@ func TestMockWithFlowSnapshotsAfterRestore(t *testing.T) {
 		return // a plugin that predates the import: the import still ran
 	}
 	require.ErrorIs(t, err, shiroclient.ErrFlowSnapshotFormat)
+}
+
+// An empty WithSnapshotReader is a fresh ledger, not a restore: the import
+// waits for the first Init.
+func TestMockWithFlowSnapshotsEmptyRestore(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bad.json"), []byte(`{"format":"defflow-snapshot/0"}`), 0o600))
+	client, err := shiroclient.NewMock(nil, mock.WithSnapshotReader(&bytes.Buffer{}), mock.WithFlowSnapshots(dir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+	err = client.Init(context.Background(), shiroclient.EncodePhylumBytes([]byte("(in-package 'user)")))
+	require.ErrorContains(t, err, "WithFlowSnapshots")
 }

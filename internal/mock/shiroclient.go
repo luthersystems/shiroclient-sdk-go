@@ -363,8 +363,9 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 
 		pendingFlowSnapshots: flowSnapshots,
 	}
-	if snapshot != nil {
-		// A restored mock is never Init'd: import now.
+	if len(snapshot) > 0 {
+		// A restored mock is never Init'd: import now.  An empty
+		// snapshot is a fresh ledger, which Init will install.
 		if err := c.importPendingFlowSnapshots(context.Background()); err != nil {
 			_ = c.Close()
 			return nil, err
