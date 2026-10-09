@@ -39,6 +39,16 @@ func TestReadFlowSnapshotDir(t *testing.T) {
 	assert.Equal(t, []shiroclient.FlowSnapshot{{Name: filepath.Join(odd, "a.json"), Data: []byte(`"a"`)}}, snaps)
 }
 
+// A *.json symlink that points out of the directory is refused, not read.
+func TestReadFlowSnapshotDirStaysInDir(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "secret.json")
+	require.NoError(t, os.WriteFile(outside, []byte(`"secret"`), 0o600))
+	dir := t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(dir, "a.json")))
+	_, err := shiroclient.ReadFlowSnapshotDir(dir)
+	require.ErrorContains(t, err, "escapes")
+}
+
 func TestImportFlowSnapshotsClientWithoutSupport(t *testing.T) {
 	_, err := shiroclient.ImportFlowSnapshots(context.Background(), plainClient{}, []shiroclient.FlowSnapshot{{Name: "a.json"}})
 	require.ErrorIs(t, err, shiroclient.ErrFlowSnapshotsNotSupported, "got %v", err)

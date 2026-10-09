@@ -3,6 +3,7 @@ package shiroclient
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,28 +60,31 @@ func ImportFlowSnapshots(ctx context.Context, client ShiroClient, snapshots []Fl
 // ReadFlowSnapshotDir reads every *.json snapshot file of dir, in name
 // order, as `shirotester flow-*` does.  A snapshot's Name is its path.  A
 // directory that holds no *.json file is an error; a subdirectory is
-// skipped.
+// skipped.  Files are read through an os.Root of dir, so a symlink that
+// points out of dir is an error, not a read.
 func ReadFlowSnapshotDir(dir string) ([]FlowSnapshot, error) {
-	entries, err := os.ReadDir(dir) // sorted by name
+	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, err
 	}
-	var paths []string
+	defer func() { _ = root.Close() }()
+	entries, err := fs.ReadDir(root.FS(), ".") // sorted by name
+	if err != nil {
+		return nil, err
+	}
+	var out []FlowSnapshot
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
-			paths = append(paths, filepath.Join(dir, e.Name()))
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
 		}
-	}
-	if len(paths) == 0 {
-		return nil, fmt.Errorf("%s holds no snapshot (*.json)", dir)
-	}
-	out := make([]FlowSnapshot, len(paths))
-	for i, p := range paths {
-		b, err := os.ReadFile(p) //nolint:gosec // a snapshot file in the directory the caller named
+		b, err := root.ReadFile(e.Name())
 		if err != nil {
 			return nil, err
 		}
-		out[i] = FlowSnapshot{Name: p, Data: b}
+		out = append(out, FlowSnapshot{Name: filepath.Join(dir, e.Name()), Data: b})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%s holds no snapshot (*.json)", dir)
 	}
 	return out, nil
 }
