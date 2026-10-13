@@ -69,7 +69,8 @@ func ImportFlowSnapshots(ctx context.Context, client ShiroClient, snapshots []Fl
 
 // ReadFlowSnapshotDir reads every *.json snapshot file of dir, in name
 // order, as `shirotester flow-*` does.  A snapshot's Name is its path.  A
-// directory that holds no *.json file is an error; a subdirectory is
+// directory that holds no *.json file is an error; an entry that is not a
+// regular file (a subdirectory, a FIFO, a symlink to a directory) is
 // skipped.  Files are read through an os.Root of dir, so a symlink that
 // points out of dir is an error, not a read.  Files whose total size
 // exceeds MaxFlowSnapshotBytes are an error matching
