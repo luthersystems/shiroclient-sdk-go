@@ -15,6 +15,7 @@ import (
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/mock"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/private"
+	"github.com/luthersystems/shiroclient-sdk-go/shiroclient/update"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
@@ -330,6 +331,27 @@ func (s *Client) MockSnapshot(w io.Writer) error {
 		return errors.New("client rpc does not not support snapshots")
 	}
 	return mock.Snapshot(w)
+}
+
+// MockInstall installs phylum on the mock backend as version, as the
+// "update" endpoint does on a network (update.Install), so a test can put a
+// production phylum version under its production label.  Call a version
+// with shiroclient.WithPhylumVersion.  A client that is not a mock returns
+// an error and installs nothing.
+func (s *Client) MockInstall(ctx context.Context, version string, phylum []byte, config ...Config) error {
+	if _, ok := s.rpc.(shiroclient.MockShiroClient); !ok {
+		return errors.New("client rpc is not a mock; MockInstall installs only on a mock")
+	}
+	return update.Install(ctx, s.rpc, version, phylum, config...)
+}
+
+// MockImportFlowSnapshots imports defflow snapshots into the mock backend
+// (shiroclient.ImportFlowSnapshots), so a test can load production runs and
+// migrate them with Call.  Install the phylum version the runs are on first
+// (MockInstall).  A client that is not a mock returns an error matching
+// shiroclient.ErrFlowSnapshotsNotSupported.
+func (s *Client) MockImportFlowSnapshots(ctx context.Context, snapshots []shiroclient.FlowSnapshot) ([]shiroclient.ImportedFlowRun, error) {
+	return shiroclient.ImportFlowSnapshots(ctx, s.rpc, snapshots)
 }
 
 // Close closes the client if necessary.
