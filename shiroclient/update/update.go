@@ -3,7 +3,9 @@ package update
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/luthersystems/shiroclient-sdk-go/internal/types"
 	"github.com/luthersystems/shiroclient-sdk-go/shiroclient"
@@ -14,6 +16,9 @@ const (
 	updateMethod   = "update"
 	enableMethod   = "enable"
 	disableMethod  = "disable"
+	// setAuthJWKSMethod is substrate's endpoint that writes the ledger
+	// JWKS (luthersystems/substrate#676).
+	setAuthJWKSMethod = "$auth_set_jwks"
 )
 
 const (
@@ -116,4 +121,36 @@ func Install(ctx context.Context, client shiroclient.ShiroClient, version string
 		return errors.New(resp.Error().Message())
 	}
 	return nil
+}
+
+// SetAuthJWKS writes jwks, a JWKS JSON document (RFC 7517,
+// {"keys":[...]}), to the ledger as the key set substrate verifies auth
+// tokens with when the chaincode runs with
+// SUBSTRATE_AUTH_CLAIMS_JWKS_SOURCE=ledger (luthersystems/substrate#676).
+// It returns the key IDs the set holds.  Substrate refuses a set it cannot
+// use, and a creator outside the admin MSP the phylum set with
+// router:set-auth-admin-msp; the error then holds substrate's reason.  The
+// chaincode must be a substrate release that has the endpoint.
+func SetAuthJWKS(ctx context.Context, client shiroclient.ShiroClient, jwks []byte, configs ...shiroclient.Config) ([]string, error) {
+	if !json.Valid(jwks) {
+		return nil, errors.New("jwks is not a JSON document")
+	}
+	configs = append(configs, shiroclient.WithParams(map[string]json.RawMessage{"jwks": jwks}))
+	resp, err := client.Call(ctx, setAuthJWKSMethod, configs...)
+	if err != nil {
+		return nil, err
+	}
+	if rerr := resp.Error(); rerr != nil {
+		if data := rerr.DataJSON(); len(data) > 0 {
+			return nil, fmt.Errorf("%s: %s", rerr.Message(), data)
+		}
+		return nil, errors.New(rerr.Message())
+	}
+	var out struct {
+		KeyIDs []string `json:"key_ids"`
+	}
+	if err := resp.UnmarshalTo(&out); err != nil {
+		return nil, err
+	}
+	return out.KeyIDs, nil
 }
