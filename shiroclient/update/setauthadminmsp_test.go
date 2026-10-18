@@ -14,13 +14,15 @@ import (
 // $auth_set_admin_msp method, with the MSP as the named parameter "msp")
 // and the admin MSP it reads from the answer.  substrate's endpoint is
 // new, so the mock plugin this module pins does not have it; the test
-// stubs the gateway instead.
+// stubs the gateway instead.  The stub answers an MSP other than the one
+// sent, so the test fails if SetAuthAdminMSP returns its argument instead
+// of the answer.
 func TestSetAuthAdminMSP(t *testing.T) {
-	url, got := gatewayStub(t, `{"error_level":0,"result":{"admin_msp":"Org2MSP"},"code":null,"message":null,"data":null}`)
+	url, got := gatewayStub(t, `{"error_level":0,"result":{"admin_msp":"Org3MSP"},"code":null,"message":null,"data":null}`)
 	client := shiroclient.NewRPC([]shiroclient.Config{shiroclient.WithEndpoint(url)})
 	msp, err := update.SetAuthAdminMSP(context.Background(), client, "Org2MSP")
 	require.NoError(t, err)
-	require.Equal(t, "Org2MSP", msp)
+	require.Equal(t, "Org3MSP", msp)
 
 	params := <-got
 	require.JSONEq(t, `"$auth_set_admin_msp"`, string(params["method"]))
