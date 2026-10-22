@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"path"
@@ -209,35 +210,44 @@ func (c *rpcShiroClient) doRequest(ctx context.Context, httpClient *http.Client,
 // (block numbers, amounts, ids), which the gateway passes through unchanged
 // (luthersystems/substrate#822).  The client marshals the result and data
 // again for ResultJSON and DataJSON, so a float64 here would round them
-// (luthersystems/shiroclient-sdk-go#102).
+// (luthersystems/shiroclient-sdk-go#102).  The number text is kept as the
+// gateway sent it: 1.0 stays 1.0 rather than becoming 1.
 func decodeJSON(msg []byte) (interface{}, error) {
+	// A Decoder reports an empty or cut-off body as io.EOF and accepts data
+	// after the value.  Callers may treat io.EOF as a dropped connection
+	// and retry a write that committed, so a malformed body is reported
+	// with json.Unmarshal's error, as before this decoder was used.
+	if !json.Valid(msg) {
+		var v interface{}
+		if err := json.Unmarshal(msg, &v); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("invalid JSON response")
+	}
 	dec := json.NewDecoder(bytes.NewReader(msg))
 	dec.UseNumber()
 	var v interface{}
 	if err := dec.Decode(&v); err != nil {
 		return nil, err
 	}
-	// json.Unmarshal, which this replaces, refuses data after the value;
-	// a Decoder reads a stream and does not, so check it here.
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return nil, errors.New("invalid character after top-level value")
-	}
 	return v, nil
 }
 
 // jsonInt reads a number that decodeJSON decoded, such as an error level
 // or an error code, as an int.  A number in float form (1.0, 1e3) is
-// truncated, as the float64 conversion this replaces did.
+// truncated, as the float64 conversion this replaces did.  A number
+// outside the int range is refused: Go's conversion of it is
+// platform-dependent, and no valid level, code or index is that large.
 func jsonInt(value interface{}) (int, bool) {
 	n, ok := value.(json.Number)
 	if !ok {
 		return 0, false
 	}
-	if i, err := n.Int64(); err == nil {
+	if i, err := strconv.ParseInt(n.String(), 10, strconv.IntSize); err == nil {
 		return int(i), true
 	}
 	f, err := n.Float64()
-	if err != nil {
+	if err != nil || f < math.MinInt || f >= math.MaxInt {
 		return 0, false
 	}
 	return int(f), true
@@ -246,13 +256,18 @@ func jsonInt(value interface{}) (int, bool) {
 // jsonUint64 reads a number that decodeJSON decoded, such as a block
 // number, as a uint64.  An integer is parsed exactly, so a block number
 // above 2^53 keeps its digits; a number in float form is truncated, as the
-// float64 conversion this replaces did.
-func jsonUint64(n json.Number) (uint64, bool) {
+// float64 conversion this replaces did.  A negative or too large number
+// is refused: Go's conversion of it is platform-dependent.
+func jsonUint64(value interface{}) (uint64, bool) {
+	n, ok := value.(json.Number)
+	if !ok {
+		return 0, false
+	}
 	if u, err := strconv.ParseUint(n.String(), 10, 64); err == nil {
 		return u, true
 	}
 	f, err := n.Float64()
-	if err != nil {
+	if err != nil || f < 0 || f >= math.MaxUint64 {
 		return 0, false
 	}
 	return uint64(f), true
@@ -793,11 +808,7 @@ func (c *rpcShiroClient) QueryInfo(ctx context.Context, configs ...types.Config)
 
 	switch res.errorLevel {
 	case rpc.ErrorLevelNoError:
-		heightArb, ok := res.result.(json.Number)
-		if !ok {
-			return 0, errors.New("ShiroClient.QueryInfo expected a numeric result field")
-		}
-		height, ok := jsonUint64(heightArb)
+		height, ok := jsonUint64(res.result)
 		if !ok {
 			return 0, errors.New("ShiroClient.QueryInfo expected a numeric result field")
 		}

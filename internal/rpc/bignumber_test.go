@@ -68,7 +68,9 @@ func TestCallBatchKeepsLargeIntegers(t *testing.T) {
 		`{"id":0,"error_level":0,"result":{"n":`+big+`},"code":null,"message":null,"data":null},`+
 		`{"id":1,"error_level":2,"result":null,"code":1000,"message":"bad","data":{"n":`+big+`}}`+
 		`],"code":1000,"message":"bad","data":{"failed_index":1}}}`)
-	br, err := client.(types.CallBatcher).CallBatch(context.Background(), []types.CallBatchRequest{{Method: "a"}, {Method: "b"}})
+	batcher, ok := client.(types.CallBatcher)
+	require.True(t, ok)
+	br, err := batcher.CallBatch(context.Background(), []types.CallBatchRequest{{Method: "a"}, {Method: "b"}})
 	var batchErr *types.CallBatchError
 	require.ErrorAs(t, err, &batchErr)
 	assert.Equal(t, 1, batchErr.Index)
@@ -109,7 +111,48 @@ func TestWithResponseKeepsFloat64(t *testing.T) {
 	var target interface{}
 	_, err := client.Call(context.Background(), "test", types.Opt(func(r *types.RequestOptions) { r.Target = &target }))
 	require.NoError(t, err)
-	result := target.(map[string]interface{})["result"].(map[string]interface{})
-	assert.Equal(t, float64(7), result["result"])
-	assert.Equal(t, float64(0), result["error_level"])
+	top, ok := target.(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, map[string]interface{}{
+		"error_level": float64(0), "result": float64(7), "code": nil, "message": nil, "data": nil,
+	}, top["result"])
+}
+
+// TestMalformedResponseIsNotEOF pins that an empty or cut-off body is
+// reported as bad JSON, as json.Unmarshal did, never as io.EOF: a caller
+// may retry on io.EOF as a dropped connection, and resend a write that
+// committed.
+func TestMalformedResponseIsNotEOF(t *testing.T) {
+	for _, body := range []string{``, `{"jsonrpc":`, `{"jsonrpc":"2.0"} x`} {
+		t.Run(body, func(t *testing.T) {
+			client, _ := bigServer(t, body)
+			_, err := client.Call(context.Background(), "test")
+			require.Error(t, err)
+			require.NotErrorIs(t, err, io.EOF)
+			require.NotErrorIs(t, err, io.ErrUnexpectedEOF)
+			var syntaxErr *json.SyntaxError
+			assert.ErrorAs(t, err, &syntaxErr)
+		})
+	}
+}
+
+// TestOutOfRangeNumbersRefused pins that a number Go cannot convert the
+// same way on every platform is refused instead of converted.
+func TestOutOfRangeNumbersRefused(t *testing.T) {
+	t.Run("negative height", func(t *testing.T) {
+		client, _ := bigServer(t, `{"jsonrpc":"2.0","id":1,"result":{"error_level":0,"result":-1,"code":null,"message":null,"data":null}}`)
+		_, err := client.QueryInfo(context.Background())
+		require.EqualError(t, err, "ShiroClient.QueryInfo expected a numeric result field")
+	})
+	t.Run("huge code", func(t *testing.T) {
+		client, _ := bigServer(t, `{"jsonrpc":"2.0","id":1,"result":{"error_level":2,"result":null,"code":1e20,"message":"bad","data":null}}`)
+		_, err := client.Call(context.Background(), "test")
+		require.EqualError(t, err, "ShiroClient.Call expected a numeric code field")
+	})
+	t.Run("float code", func(t *testing.T) {
+		client, _ := bigServer(t, `{"jsonrpc":"2.0","id":1,"result":{"error_level":2.0,"result":null,"code":1e3,"message":"bad","data":null}}`)
+		res, err := client.Call(context.Background(), "test")
+		require.NoError(t, err)
+		assert.Equal(t, 1000, res.Error().Code())
+	})
 }
