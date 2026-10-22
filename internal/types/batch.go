@@ -179,7 +179,9 @@ type CallBatchResponse struct {
 	// is a failure.
 	Responses []ShiroResponse
 	// IDs holds each response's JSON-RPC id as the server returned it,
-	// decoded from JSON (so a numeric id is a float64).
+	// decoded from JSON (so a numeric id is a float64).  The RPC client
+	// gives a number too large for a float64 (1e400) as a json.Number,
+	// rather than failing a batch that has already run.
 	IDs []interface{}
 	// CommitBlockNum is the block that committed the transaction, or 0.
 	CommitBlockNum uint64
