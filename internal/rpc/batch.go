@@ -37,12 +37,12 @@ func jsonRPCErrorOf(arb interface{}) *jsonRPCError {
 	if !ok {
 		return nil
 	}
-	code, ok := obj["code"].(float64)
+	code, ok := jsonInt(obj["code"])
 	if !ok {
 		return nil
 	}
 	message, _ := obj["message"].(string)
-	return &jsonRPCError{code: int(code), message: message}
+	return &jsonRPCError{code: code, message: message}
 }
 
 // batchKind names a gateway batch method (CallBatch or QueryBatch), which
@@ -144,8 +144,8 @@ func (c *rpcShiroClient) runBatch(ctx context.Context, kind batchKind, requests 
 	failed := br.FailedIndex()
 	if res.errorLevel == rpc.ErrorLevelPhylum {
 		if data, ok := res.data.(map[string]interface{}); ok {
-			if idx, ok := data["failed_index"].(float64); ok && int(idx) >= 0 && int(idx) < len(br.Responses) {
-				failed = int(idx)
+			if idx, ok := jsonInt(data["failed_index"]); ok && idx >= 0 && idx < len(br.Responses) {
+				failed = idx
 			}
 		}
 	}
@@ -238,12 +238,12 @@ func parseBatchResult(name string, res *rpcres, n int, needCommitted bool) (*typ
 		if !ok {
 			return nil, fmt.Errorf("%s expected an object for result %d", name, i)
 		}
-		br.IDs[i] = elem["id"]
-		level, ok := elem["error_level"].(float64)
+		br.IDs[i] = batchID(elem["id"])
+		level, ok := jsonInt(elem["error_level"])
 		if !ok {
 			return nil, fmt.Errorf("%s expected a numeric error_level for result %d", name, i)
 		}
-		switch int(level) {
+		switch level {
 		case rpc.ErrorLevelNoError:
 			resultJSON, err := json.Marshal(elem["result"])
 			if err != nil {
@@ -251,7 +251,7 @@ func parseBatchResult(name string, res *rpcres, n int, needCommitted bool) (*typ
 			}
 			br.Responses[i] = types.NewSuccessResponse(resultJSON, br.TxID, br.CommitBlockNum, br.MaxSimBlockNum)
 		case rpc.ErrorLevelPhylum:
-			code, ok := elem["code"].(float64)
+			code, ok := jsonInt(elem["code"])
 			if !ok {
 				return nil, fmt.Errorf("%s expected a numeric code for result %d", name, i)
 			}
@@ -263,10 +263,27 @@ func parseBatchResult(name string, res *rpcres, n int, needCommitted bool) (*typ
 			if err != nil {
 				return nil, err
 			}
-			br.Responses[i] = types.NewFailureResponse(int(code), message, dataJSON)
+			br.Responses[i] = types.NewFailureResponse(code, message, dataJSON)
 		default:
-			return nil, fmt.Errorf("%s unexpected error level %d for result %d", name, int(level), i)
+			return nil, fmt.Errorf("%s unexpected error level %d for result %d", name, level, i)
 		}
 	}
 	return br, nil
+}
+
+// batchID returns a response's JSON-RPC id as CallBatchResponse.IDs
+// documents it and the mock client returns it: a numeric id is a float64.
+// decodeJSON gives it as a json.Number, which callers comparing ids with a
+// float64 would not match.  A number a float64 cannot hold (1e400) stays a
+// json.Number rather than failing the batch, which has already run.
+func batchID(id interface{}) interface{} {
+	n, ok := id.(json.Number)
+	if !ok {
+		return id
+	}
+	f, err := n.Float64()
+	if err != nil {
+		return n
+	}
+	return f
 }

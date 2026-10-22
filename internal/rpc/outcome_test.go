@@ -100,7 +100,7 @@ func TestShiroClientOutcome(t *testing.T) {
 
 func TestOutcomeUnknownCause(t *testing.T) {
 	res := &rpcres{
-		message: "transaction timeout", code: float64(1),
+		message: "transaction timeout", code: json.Number("1"), // reqres decodes numbers as json.Number (#102)
 		data: map[string]interface{}{"outcome": "unknown", "tx_id": "tx-123"},
 	}
 	err := res.getShiroClientError()
