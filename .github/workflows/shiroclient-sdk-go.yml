@@ -41,16 +41,8 @@ jobs:
       - uses: actions/checkout@v7
       - name: Work marker gate
         run: make work-marker-gate
-  # Known-vulnerability gate: call-graph-aware, fails only on vulns whose
-  # vulnerable code this module actually reaches.
-  govulncheck:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "stable"
-      - name: Run govulncheck
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+  # No govulncheck job here: the shared Security workflow
+  # (.github/workflows/security.yml, from luthersystems/.github) runs it on
+  # every PR and push with a pinned govulncheck and an exemptions file, and
+  # its "security / result" check replaces this job's. See
+  # https://github.com/luthersystems/.github/blob/main/docs/security-workflow.md
