@@ -73,7 +73,7 @@ Functional options via `Config` interface. All operations accept variadic `...Co
 
 ## CI
 
-GitHub Actions on PRs to `main`: golangci-lint v2.13 (config in `.golangci.yml`, rules shared with luthersystems/elps and luthersystems/substrate), then `make citest`; plus the work marker gate (`make work-marker-gate`, allowlist in `scripts/work-markers.txt`). See `.github/workflows/shiroclient-sdk-go.yml`.
+GitHub Actions on PRs to `main`: `make citest` and the golangci-lint config schema check (`.github/workflows/shiroclient-sdk-go.yml`). The org's shared workflows from luthersystems/.github run the rest: Quality (`.github/workflows/quality.yml`: work marker gate, golangci-lint v2.15.0 with `.golangci.yml`, the API break gate; exceptions in `.github/quality/`) and Security (`.github/workflows/security.yml`: govulncheck, gosec, gitleaks, osv-scanner). A work marker must name an open issue as `MARKER(#N)`.
 
 ## Skills
 
