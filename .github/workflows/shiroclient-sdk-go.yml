@@ -19,30 +19,24 @@ jobs:
           # dependency update that raises it cannot leave CI behind.
           go-version-file: go.mod
           cache: false
-      - name: golangci-lint
+      # golangci-lint itself runs in the shared Quality workflow
+      # (.github/workflows/quality.yml). `golangci-lint run` does not reject
+      # an unknown key in .golangci.yml (a misspelled section runs to "0
+      # issues"); only the schema check does, and the shared workflow does not
+      # run it yet, so it stays here. Keep the version equal to the shared
+      # workflow's pin.
+      - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13
-      # `golangci-lint run` does not reject an unknown key in .golangci.yml (a
-      # misspelled section runs to "0 issues"); only the schema check does.
-      # v2.13 embeds the schema, so this needs no network.
+          version: v2.15.0
+          install-only: true
       - name: golangci-lint config schema
         run: golangci-lint config verify
       - name: Run CI tests
         run: make citest
-  # Fails when a tracked file has a work marker that scripts/work-markers.txt
-  # does not allow. Allowlist rules and format are in the header of
-  # scripts/work-markers.txt. Same gate as luthersystems/elps.
-  work-markers:
-    name: Work marker gate
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v7
-      - name: Work marker gate
-        run: make work-marker-gate
   # No govulncheck job here: the shared Security workflow
   # (.github/workflows/security.yml, from luthersystems/.github) runs it on
   # every PR and push with a pinned govulncheck and an exemptions file, and
   # its "security / result" check replaces this job's. See
   # https://github.com/luthersystems/.github/blob/main/docs/security-workflow.md
+  # No work marker job either: the shared Quality workflow runs the gate.
