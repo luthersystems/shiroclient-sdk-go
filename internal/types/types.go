@@ -125,6 +125,7 @@ type RequestOptions struct {
 	MspFilter           []string
 	MinEndorsers        int
 	DisableWritePolling bool
+	HealthCheckWrite    bool
 	CcFetchURLDowngrade bool
 	DebugPrint          bool
 }

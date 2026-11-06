@@ -186,6 +186,19 @@ func WithDisableWritePolling(disable bool) Config {
 	})
 }
 
+// WithHealthCheckWrite asks RemoteHealthCheck for the gateway's heartbeat
+// write: the gateway writes one transaction and reads it back, to prove the
+// network can endorse, order and commit (luthersystems/substrate#1037). The
+// gateway refuses it unless it runs with --health-check-write, and the
+// chaincode refuses it unless the gateway's MSP is the admin MSP. The
+// request sends WithAuthToken's token, so the transaction records its
+// issuer. Calls other than RemoteHealthCheck ignore it.
+func WithHealthCheckWrite(write bool) Config {
+	return types.Opt(func(r *types.RequestOptions) {
+		r.HealthCheckWrite = write
+	})
+}
+
 // WithCCFetchURLDowngrade allows controlling https -> http downgrade,
 // typically useful before proxying for ccfetchurl library.
 func WithCCFetchURLDowngrade(downgrade bool) Config {
