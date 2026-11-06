@@ -163,7 +163,8 @@ type CallBatchRequest struct {
 	// WithLogrusFields, WithMSPFilter, WithTargetEndpoints,
 	// WithoutTargetEndpoints, WithMinEndorsers, WithCreator,
 	// WithDependentTxID, WithDependentBlock, WithPhylumVersion,
-	// WithDisableWritePolling, WithTimestampGenerator, WithCCFetchURLProxy,
+	// WithDisableWritePolling, WithHealthCheckWrite, WithTimestampGenerator,
+	// WithCCFetchURLProxy,
 	// WithCCFetchURLDowngrade, WithResponse, WithResponseReceiver and
 	// WithUnsafeDebug.  Pass those in the batch's own configs.
 	Configs []Config
@@ -301,6 +302,7 @@ var requestOptionNames = map[string]string{
 	"MspFilter":           "WithMSPFilter",
 	"MinEndorsers":        "WithMinEndorsers",
 	"DisableWritePolling": "WithDisableWritePolling",
+	"HealthCheckWrite":    "WithHealthCheckWrite",
 	"CcFetchURLDowngrade": "WithCCFetchURLDowngrade",
 	"ResponseReceiver":    "WithResponseReceiver",
 	"DebugPrint":          "WithUnsafeDebug",
