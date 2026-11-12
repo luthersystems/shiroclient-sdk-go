@@ -337,8 +337,19 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 		}
 		release = conn.Close
 	}
+	// The cc-fetchurl settings come from the base configs, the only
+	// configs there are when the mock is made. A substrate that knows the
+	// two fields builds the mock's fetchurl client from them; an older one
+	// ignores them, as it ignored the settings before.
+	base := types.ApplyConfigs(nil, clientConfigs...)
+	fetchProxy := ""
+	if base.CcFetchURLProxy != nil {
+		fetchProxy = base.CcFetchURLProxy.String()
+	}
 	tag, err := conn.GetSubstrate().NewMockFrom(mockint.PhylumName, mockint.PhylumVersion, snapshot, plugin.MockOptions{
-		PreheatTimeout: config.PreheatTimeout,
+		PreheatTimeout:      config.PreheatTimeout,
+		CCFetchURLProxy:     fetchProxy,
+		CCFetchURLDowngrade: base.CcFetchURLDowngrade,
 	})
 	if err != nil {
 		_ = release()
