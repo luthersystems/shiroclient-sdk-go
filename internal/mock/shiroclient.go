@@ -92,6 +92,32 @@ func (c *mockShiroClient) options(ctx context.Context, configs ...types.Config) 
 	return opt
 }
 
+// urlString is u as text, or empty for nil. NewMock's MockOptions and each
+// request's ConcreteRequestOptions both write the fetchurl proxy with it: a
+// substrate mock refuses a request whose proxy text differs from the
+// mock's, so the two must agree byte for byte.
+func urlString(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	return u.String()
+}
+
+// mockOptions returns the construction options of a mock. The cc-fetchurl
+// settings come from the base configs, the only configs there are when the
+// mock is made: the mock builds its fetchurl client then, so they cannot
+// come from a request (luthersystems/substrate#1084). A substrate that
+// knows the two fields uses them; an older one ignores them, as it ignored
+// the settings before.
+func mockOptions(config *mockint.Config, clientConfigs []types.Config) plugin.MockOptions {
+	base := types.ApplyConfigs(nil, clientConfigs...)
+	return plugin.MockOptions{
+		PreheatTimeout:      config.PreheatTimeout,
+		CCFetchURLProxy:     urlString(base.CcFetchURLProxy),
+		CCFetchURLDowngrade: base.CcFetchURLDowngrade,
+	}
+}
+
 // concrete flattens opt to the plugin's pure-data options.
 func (c *mockShiroClient) concrete(ctx context.Context, opt *types.RequestOptions) (*plugin.ConcreteRequestOptions, error) {
 	params, err := json.Marshal(opt.Params)
@@ -105,16 +131,6 @@ func (c *mockShiroClient) concrete(ctx context.Context, opt *types.RequestOption
 		}
 
 		return time.Now().UTC().Format(time.RFC3339)
-	})
-
-	url := (func(x *url.URL) string {
-		out := ""
-
-		if x != nil {
-			out = x.String()
-		}
-
-		return out
 	})
 
 	return &plugin.ConcreteRequestOptions{
@@ -134,7 +150,7 @@ func (c *mockShiroClient) concrete(ctx context.Context, opt *types.RequestOption
 		PhylumVersion:       opt.PhylumVersion,
 		NewPhylumVersion:    opt.NewPhylumVersion,
 		CCFetchURLDowngrade: opt.CcFetchURLDowngrade,
-		CCFetchURLProxy:     url(opt.CcFetchURLProxy),
+		CCFetchURLProxy:     urlString(opt.CcFetchURLProxy),
 		DebugPrint:          opt.DebugPrint,
 	}, nil
 }
@@ -310,6 +326,8 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 			return nil, fmt.Errorf("failed to read snapshot: %w", err)
 		}
 	}
+	// Before connect, so a bad base config fails here and leaks no plugin.
+	mockOpts := mockOptions(config, clientConfigs)
 	connect := func() (*plugin.SubstrateConnection, error) {
 		conn, err := plugin.NewSubstrateConnection(pluginOpts...)
 		if err != nil {
@@ -337,20 +355,7 @@ func NewMock(clientConfigs []types.Config, opts ...mock.Option) (MockShiroClient
 		}
 		release = conn.Close
 	}
-	// The cc-fetchurl settings come from the base configs, the only
-	// configs there are when the mock is made. A substrate that knows the
-	// two fields builds the mock's fetchurl client from them; an older one
-	// ignores them, as it ignored the settings before.
-	base := types.ApplyConfigs(nil, clientConfigs...)
-	fetchProxy := ""
-	if base.CcFetchURLProxy != nil {
-		fetchProxy = base.CcFetchURLProxy.String()
-	}
-	tag, err := conn.GetSubstrate().NewMockFrom(mockint.PhylumName, mockint.PhylumVersion, snapshot, plugin.MockOptions{
-		PreheatTimeout:      config.PreheatTimeout,
-		CCFetchURLProxy:     fetchProxy,
-		CCFetchURLDowngrade: base.CcFetchURLDowngrade,
-	})
+	tag, err := conn.GetSubstrate().NewMockFrom(mockint.PhylumName, mockint.PhylumVersion, snapshot, mockOpts)
 	if err != nil {
 		_ = release()
 		return nil, fmt.Errorf("failed to create mock client: %w", err)
