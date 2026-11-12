@@ -201,6 +201,11 @@ func WithHealthCheckWrite(write bool) Config {
 
 // WithCCFetchURLDowngrade allows controlling https -> http downgrade,
 // typically useful before proxying for ccfetchurl library.
+//
+// A mock (NewMock) reads it from its base configs only, when it is made,
+// because the mock builds its fetchurl client then. Give it to NewMock,
+// not to one call. A substrate release that knows this refuses a call that
+// sets another value.
 func WithCCFetchURLDowngrade(downgrade bool) Config {
 	return types.Opt(func(r *types.RequestOptions) {
 		r.CcFetchURLDowngrade = downgrade
@@ -208,6 +213,9 @@ func WithCCFetchURLDowngrade(downgrade bool) Config {
 }
 
 // WithCCFetchURLProxy sets the proxy for ccfetchurl library.
+//
+// As with WithCCFetchURLDowngrade, a mock reads it from its base configs
+// only, when it is made.
 func WithCCFetchURLProxy(proxy *url.URL) Config {
 	return types.Opt(func(r *types.RequestOptions) {
 		r.CcFetchURLProxy = proxy
