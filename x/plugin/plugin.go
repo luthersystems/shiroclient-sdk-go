@@ -23,15 +23,15 @@ import (
 // plugin RPC boundary. A zero value selects substrate defaults for every
 // field.
 type MockOptions struct {
-	// PreheatTimeout overrides the substrate phylum preheat/init timeout. A
-	// non-positive value uses the substrate default.
-	PreheatTimeout time.Duration
 	// CCFetchURLProxy is the proxy URL for cc-fetchurl:fetchurl, or empty
 	// for direct requests. The mock builds its fetchurl client once, when
 	// it is made, so the setting travels here, with the mock, and not with
 	// each request: before it did, a mock in the plugin process was always
 	// built with no proxy (luthersystems/substrate#1084).
 	CCFetchURLProxy string
+	// PreheatTimeout overrides the substrate phylum preheat/init timeout. A
+	// non-positive value uses the substrate default.
+	PreheatTimeout time.Duration
 	// CCFetchURLDowngrade makes cc-fetchurl:fetchurl send an https URL as
 	// http, for a test proxy that cannot tunnel TLS.
 	CCFetchURLDowngrade bool
