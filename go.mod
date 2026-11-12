@@ -5,12 +5,12 @@ go 1.26.0
 toolchain go1.27.4
 
 require (
-	buf.build/gen/go/luthersystems/protos/protocolbuffers/go v1.36.12-20250430044901-c62151e471be.2
+	buf.build/gen/go/luthersystems/protos/protocolbuffers/go v1.36.12-20261106161512-517840fd7c10.2
 	github.com/golang/protobuf v1.5.4
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.8.0
-	github.com/luthersystems/svc v0.19.2
+	github.com/luthersystems/svc v0.21.0
 	github.com/sirupsen/logrus v1.10.2
 	github.com/stretchr/testify v1.12.1
 	go.opentelemetry.io/otel v1.47.0
