@@ -2,7 +2,7 @@ module github.com/luthersystems/shiroclient-sdk-go
 
 go 1.26.0
 
-toolchain go1.26.11
+toolchain go1.27.4
 
 require (
 	buf.build/gen/go/luthersystems/protos/protocolbuffers/go v1.36.12-20250430044901-c62151e471be.2
