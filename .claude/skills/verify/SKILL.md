@@ -9,9 +9,10 @@ Run every check that CI runs, locally, so you never push broken code.
 
 ## Workflow
 
-CI runs these checks on PRs to `main` (see `.github/workflows/shiroclient-sdk-go.yml`):
+CI runs these checks on PRs to `main` (see `.github/workflows/shiroclient-sdk-go.yml`,
+and the shared Quality workflow in `.github/workflows/quality.yml`):
 
-### 1. Lint (golangci-lint v2.13)
+### 1. Lint (golangci-lint v2.15.0)
 
 ```bash
 golangci-lint config verify
@@ -19,16 +20,14 @@ golangci-lint run ./...
 ```
 
 Rules live in `.golangci.yml` (shared with luthersystems/elps and
-luthersystems/substrate). Use v2.13 locally: findings differ across minors.
+luthersystems/substrate). Use v2.15.0 locally, the shared Quality workflow's pin: findings differ
+across minors.
 
-### 1b. Work marker gate
+### 1b. Work markers
 
-```bash
-make work-marker-gate
-```
-
-Fails on an upper-case work marker word that `scripts/work-markers.txt` does
-not allow. Do the work, or open an issue and add a dated entry.
+The shared Quality workflow runs the work marker gate. A work marker (one of
+the five upper-case words) must name an open issue, as `MARKER(#N)`. The
+rules are in docs/quality-workflow.md in luthersystems/.github.
 
 ### 2. Full CI Test Suite
 
@@ -43,7 +42,7 @@ This runs `make plugin` (downloads substrate binary if missing) followed by `mak
 If you've already run `make plugin` in this session:
 
 ```bash
-golangci-lint run ./... && make work-marker-gate && make test
+golangci-lint run ./... && make test
 ```
 
 ## Key Reminders
@@ -56,6 +55,5 @@ golangci-lint run ./... && make work-marker-gate && make test
 ## Checklist
 
 - [ ] `golangci-lint run ./...` passes (matches CI lint step)
-- [ ] `make work-marker-gate` passes
 - [ ] `make citest` passes (matches CI test step)
 - [ ] No untracked generated files left behind

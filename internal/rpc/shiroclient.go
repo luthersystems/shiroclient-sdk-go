@@ -469,7 +469,7 @@ func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, con
 	if opt.Endpoint == "" {
 		return nil, errors.New("ShiroClient.HealthCheck expected an endpoint to be set")
 	}
-	checkURL, err := gatewayHealthCheckURL(opt.Endpoint, services)
+	checkURL, err := gatewayHealthCheckURL(opt.Endpoint, services, opt.HealthCheckWrite)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck invalid endpoint: %w", err)
 	}
@@ -478,6 +478,11 @@ func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, con
 	hreq, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("healthcheck request: %w", err)
+	}
+	// The gateway passes the token to the heartbeat write, which records
+	// the issuer, as for any call.
+	if opt.AuthToken != "" {
+		hreq.Header.Set("Authorization", "Bearer "+opt.AuthToken)
 	}
 	// if present, propagate trace from context over HTTP headers
 	tracePropagator.Inject(ctx, propagation.HeaderCarrier(hreq.Header))
@@ -496,7 +501,7 @@ func (c *rpcShiroClient) HealthCheck(ctx context.Context, services []string, con
 	return resp, nil
 }
 
-func gatewayHealthCheckURL(endpoint string, services []string) (string, error) {
+func gatewayHealthCheckURL(endpoint string, services []string, write bool) (string, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
 		return "", fmt.Errorf("invalid gateway url: %w", err)
@@ -508,6 +513,9 @@ func gatewayHealthCheckURL(endpoint string, services []string) (string, error) {
 	}
 	if len(services) > 0 {
 		urlQueryAppend(u, url.Values{"service": services})
+	}
+	if write {
+		urlQueryAppend(u, url.Values{"write": {"true"}})
 	}
 	return u.String(), nil
 }

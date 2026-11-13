@@ -86,14 +86,17 @@ func TestGatewayHealthCheckURL(t *testing.T) {
 	const endpoint = "https://localhost"
 	list := func(name ...string) []string { return name }
 	for i, test := range []struct {
-		services []string
 		url      string
+		services []string
+		write    bool
 	}{
-		{list(), "https://localhost/health_check"},
-		{list("phylum"), "https://localhost/health_check?service=phylum"},
-		{list("fabric_peer", "phylum"), "https://localhost/health_check?service=fabric_peer&service=phylum"},
+		{services: list(), url: "https://localhost/health_check"},
+		{services: list("phylum"), url: "https://localhost/health_check?service=phylum"},
+		{services: list("fabric_peer", "phylum"), url: "https://localhost/health_check?service=fabric_peer&service=phylum"},
+		{services: list(), write: true, url: "https://localhost/health_check?write=true"},
+		{services: list("phylum"), write: true, url: "https://localhost/health_check?service=phylum&write=true"},
 	} {
-		u, err := gatewayHealthCheckURL(endpoint, test.services)
+		u, err := gatewayHealthCheckURL(endpoint, test.services, test.write)
 		if assert.NoError(t, err, "test %d", i) {
 			assert.Equal(t, test.url, u, "test %d", i)
 		}
